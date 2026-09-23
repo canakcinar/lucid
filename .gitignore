@@ -1,0 +1,13 @@
+# Build artifacts
+sift
+sift.exe
+
+# Pipeline scratch / workflow artifacts
+/.pipeline/
+
+# Coverage / temp
+*.har
+*.out
+
+# macOS
+.DS_Store
