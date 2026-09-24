@@ -4,6 +4,18 @@ All notable changes to sift are recorded here. Format follows [Keep a Changelog]
 
 ## [Unreleased]
 
+## [v0.1.4] — 2026-09-24
+
+Architectural fix for the "ferox truncates on every real target" problem. v0.1.3 measured the recursion cost accurately (1400–1550s) but left the recursion in place; v0.1.4 removes the recursion because that work belongs to katana. Ferox now covers "unlinked path" surface only. Live sanity on the same two targets round-7 measured: coverage went from **partial → complete**, findings held (195→197 on www.cyberwhiz, 4→5 on otatool).
+
+### Changed
+- **`runFerox` now passes `-n` (`--no-recursion`)**. Default ferox re-fuzzes the entire wordlist inside every 2xx/3xx/401/403 hit; at `-d 3` on a rich host this executes roughly `hit_count^depth` requests (round-7 measurement: 46,560 requests for common.txt on www.cyberwhiz, ≈10× baseline). Recursion is now katana's job (link extraction from HTML + JS), which is what it's uniquely good at. Ferox does one clean pass over the wordlist.
+- **`feroxBudget` rewritten**: `lines × (1 + len(exts)) × 2 / rate`. The `(1 + len(exts))` factor was missing in v0.1.4-rc1 and re-truncated the sanity sweep (`-e php,json,txt,config,bak` turns each word into 6 requests). Empirical baseline for common.txt at rate 30 with no extensions: ≈316s; with 5 extensions: ≈1900s. Both match sanity-run finish times to within the hedge.
+- **Tests**: `TestFeroxBudget_ScalesWithWordlist` → `TestFeroxBudget_NoRecursionSinglePass` (bounds 200–500s, no-ext baseline). Added `TestFeroxBudget_IgnoresDepth` (regression guard for anyone re-adding MaxDepth to the formula) and `TestFeroxBudget_ExtensionMultiplier` (regression guard for the -rc1 miss).
+
+### Notes
+- If a maintainer needs deep unlinked-path discovery in the future, the answer is **not** to re-enable ferox recursion — it's to run ferox again against the discovered sub-paths in a targeted second pass, so the operator controls the request budget explicitly.
+
 ## [v0.1.3] — 2026-09-24
 
 Empirical timeout calibration. The v0.1.2 formula (`lines × depth × 1.5 / rate`) predicted 712s for common.txt at rate 30, but two round-7 measurements against real hosts — running raw feroxbuster with no timeout — showed the true wall-clock is nearly 2× that:
@@ -76,7 +88,8 @@ First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / k
 - `-audit` runs in ~13 s on a stock CI runner; the default `go test ./...` suite is ~1 s (integration and benchmark suites are behind build tags).
 - Verify by tag: `go install github.com/canakcinar/sift@v0.1.0` and run `sift -version`.
 
-[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.4...HEAD
+[v0.1.4]: https://github.com/canakcinar/sift/releases/tag/v0.1.4
 [v0.1.3]: https://github.com/canakcinar/sift/releases/tag/v0.1.3
 [v0.1.2]: https://github.com/canakcinar/sift/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/canakcinar/sift/releases/tag/v0.1.1

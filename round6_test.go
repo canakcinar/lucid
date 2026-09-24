@@ -11,12 +11,12 @@ import (
 // meta.partial_reason was missing, config.json / Okta / AWS-API-Gateway leaks were invisible.
 // Each test here anchors one of the fixes so a regression can't slip past `go test -short`.
 
-// TestFeroxBudget_ScalesWithWordlist — common.txt (4750 words) at rate 30 must derive a
-// deadline within the empirically-measured 1400–1600s band (see feroxBudget's comment for
-// the round-7 calibration: www.cyberwhiz measured 1552s, otatool measured 1374s). A
-// regression that cut the hedge back to 1.5× would re-open the round-6 sweep failure
-// (23/24 targets partial). A regression that overshot (>2000s) would waste batch wall time.
-func TestFeroxBudget_ScalesWithWordlist(t *testing.T) {
+// TestFeroxBudget_NoRecursionSinglePass — since v0.1.4 ferox runs with --no-recursion,
+// so the budget is a straight single-pass calculation: (lines * (1+exts) * 2) / rate.
+// common.txt with no extensions at rate 30 gives 316s. A regression that reintroduced the
+// depth multiplier would push this back to the 1000s+ band; dropping the 2× hedge to 1×
+// would leave 158s — too tight for warm-up + concurrency ramp.
+func TestFeroxBudget_NoRecursionSinglePass(t *testing.T) {
 	f, err := os.CreateTemp("", "sift-wl-*.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -27,14 +27,64 @@ func TestFeroxBudget_ScalesWithWordlist(t *testing.T) {
 	}
 	f.Close()
 
-	cfg := &Config{Rate: 30, MaxDepth: 2, EngineTimeout: 240}
+	// MaxDepth deliberately non-zero to prove the budget is INDEPENDENT of it since v0.1.4.
+	// Exts empty here — the (1+ext) multiplier is exercised in its own test below.
+	cfg := &Config{Rate: 30, MaxDepth: 3, EngineTimeout: 240}
 	got := feroxBudget(cfg, f.Name())
-	// 4750 * (2+1) * 3 / 30 = 1425s. Recursion cap at 3× keeps this from exploding.
-	if got < 1200 {
-		t.Errorf("feroxBudget for common.txt at rate 30 derived %ds; expected ≥ 1200 — regression to the 1.5× hedge that truncated on live sweeps", got)
+	// 4750 * 1 * 2 / 30 = 316s. Any drift outside 200–500s is a regression worth failing on.
+	if got < 200 {
+		t.Errorf("feroxBudget for common.txt at rate 30 derived %ds; expected ≥ 200 — too tight for warm-up + retry overhead", got)
 	}
-	if got > 2000 {
-		t.Errorf("feroxBudget for common.txt derived %ds; expected ≤ 2000 — hedge is overshooting the empirical band", got)
+	if got > 500 {
+		t.Errorf("feroxBudget for common.txt derived %ds; expected ≤ 500 — someone re-introduced the depth multiplier or over-hedged", got)
+	}
+}
+
+// TestFeroxBudget_ExtensionMultiplier — the v0.1.4-rc failure mode: -e php,json,txt,config,bak
+// turns 4750 words into 28,500 requests, but the first draft of the formula ignored -e and
+// derived 316s. Live sweep still hit feroxbuster_timeout. This test locks in the (1+len(exts))
+// multiplier so a maintainer who drops it fails a targeted assertion instead of noticing on a
+// live sweep three weeks later.
+func TestFeroxBudget_ExtensionMultiplier(t *testing.T) {
+	f, _ := os.CreateTemp("", "sift-wl-*.txt")
+	defer os.Remove(f.Name())
+	for i := 0; i < 4750; i++ {
+		f.WriteString("word\n")
+	}
+	f.Close()
+
+	base := feroxBudget(&Config{Rate: 30, MaxDepth: 2, EngineTimeout: 240}, f.Name())
+	// 5 extensions → 6× more requests → 6× the budget.
+	withExts := feroxBudget(
+		&Config{Rate: 30, MaxDepth: 2, EngineTimeout: 240, Exts: []string{"php", "json", "txt", "config", "bak"}},
+		f.Name(),
+	)
+	ratio := withExts / base
+	if ratio < 5 || ratio > 7 {
+		t.Errorf("feroxBudget with 5 exts must scale ~6× (each word becomes 6 requests); base=%d withExts=%d ratio=%d", base, withExts, ratio)
+	}
+	// The absolute number for common.txt+5exts should sit in the 1500–2500s band — enough
+	// for 28,500 requests at 30 req/s + 2× hedge, but not runaway.
+	if withExts < 1500 || withExts > 2500 {
+		t.Errorf("feroxBudget for common.txt +5 exts at rate 30 = %ds; expected 1500–2500", withExts)
+	}
+}
+
+// TestFeroxBudget_IgnoresDepth — ensures a maintainer who re-adds `cfg.MaxDepth` into the
+// formula fails a targeted test, not a fuzzy bound. Two calls with identical wordlist and
+// rate but different MaxDepth MUST return the same number.
+func TestFeroxBudget_IgnoresDepth(t *testing.T) {
+	f, _ := os.CreateTemp("", "sift-wl-*.txt")
+	defer os.Remove(f.Name())
+	for i := 0; i < 500; i++ {
+		f.WriteString("word\n")
+	}
+	f.Close()
+
+	shallow := feroxBudget(&Config{Rate: 30, MaxDepth: 0, EngineTimeout: 240}, f.Name())
+	deep := feroxBudget(&Config{Rate: 30, MaxDepth: 5, EngineTimeout: 240}, f.Name())
+	if shallow != deep {
+		t.Errorf("feroxBudget must ignore MaxDepth since v0.1.4 (--no-recursion); got shallow=%d deep=%d", shallow, deep)
 	}
 }
 
