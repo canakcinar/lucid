@@ -70,6 +70,32 @@ func TestFeroxBudget_DeepMode(t *testing.T) {
 	}
 }
 
+// TestKatanaBudget_ScalesWithDepth — deeper crawl → longer budget. A regression that pinned
+// katana to cfg.EngineTimeout (which is what pre-v0.1.5 did) truncated deep-mode crawls on
+// rich hosts.
+func TestKatanaBudget_ScalesWithDepth(t *testing.T) {
+	shallow := katanaBudget(&Config{Mode: "standard"}, 3)
+	deeper := katanaBudget(&Config{Mode: "standard"}, 6)
+	if !(deeper > shallow) {
+		t.Errorf("katanaBudget must grow with depth; shallow(d=3)=%d deeper(d=6)=%d", shallow, deeper)
+	}
+	// d=3 → 300*3=900 pages → 270s. Any drift outside 200–500s is a regression.
+	if shallow < 200 || shallow > 500 {
+		t.Errorf("katanaBudget(d=3) = %ds; expected 200–500", shallow)
+	}
+}
+
+// TestKatanaBudget_FastCap — fast mode must cap page estimate so a rich host doesn't wedge a
+// fast-mode batch. Practically: at very high depth (say 20) the budget hits the fast cap
+// (1500 pages × 300ms = 450s) instead of scaling linearly.
+func TestKatanaBudget_FastCap(t *testing.T) {
+	fast := katanaBudget(&Config{Mode: "fast"}, 20)
+	deep := katanaBudget(&Config{Mode: "deep"}, 20)
+	if !(fast < deep) {
+		t.Errorf("fast mode must cap the page estimate; fast=%d deep=%d", fast, deep)
+	}
+}
+
 // TestFeroxBudget_ModeOrdering — hard invariant: fast ≤ standard ≤ deep for the same input.
 // If a maintainer swaps two branches by accident this fires immediately.
 func TestFeroxBudget_ModeOrdering(t *testing.T) {

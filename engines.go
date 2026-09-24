@@ -457,6 +457,10 @@ func runFfuf(targetURL, wordlist string, cfg *Config) map[string]int {
 }
 
 // katana: crawl + JavaScript endpoint extraction (-jc) + known files robots/sitemap (-kf all).
+// Budget is mode-aware because katana IS the recursion when ferox isn't (v0.1.4+ standard,
+// v0.1.5+ fast). katana at -d 5 on a rich host can walk thousands of pages; a fixed
+// -engine-timeout truncates the crawl and drops the linked sub-directories katana was
+// supposed to hand to the cleanup layer — the exact reason ferox recursion was moved here.
 func runKatana(targetURL string, cfg *Config) []string {
 	if !haveBin("katana") {
 		return nil
@@ -472,12 +476,39 @@ func runKatana(targetURL string, cfg *Config) []string {
 	if cfg.Proxy != "" {
 		a = append(a, "-proxy", cfg.Proxy)
 	}
-	cmd, ctx, cancel := engineCmd(cfg, "katana", a...)
+	cmd, ctx, cancel := engineCmdBudget(cfg, "katana", katanaBudget(cfg, d), a...)
 	defer cancel()
 	out, err := runLines(cmd)
 	truncWarn(cfg, "katana", ctx)
 	engineRunErr(cfg, "katana", ctx, err)
 	return out
+}
+
+// katanaBudget scales the katana deadline to the crawl depth and mode. Katana visits a set of
+// URLs, JS-parses each response, and enqueues new links up to depth. The realistic wall-clock
+// per page (fetch + parse + queue) at -rl 30 is ~40ms on a warm host, but network variance and
+// large HTML pages push the effective per-page cost to ~200ms in the field. Round-6 sweep on
+// www.cyberwhiz saw katana enqueue 1385+ URLs at -d 3; at 200ms/URL that's ~280s. Cap and
+// hedge for higher depth. Fast mode caps depth in the formula to keep the batch cheap; deep
+// mode gets the full multiplier for the same reason ferox does in deep — the operator asked.
+func katanaBudget(cfg *Config, depth int) int {
+	if depth < 3 {
+		depth = 3
+	}
+	// pagesEstimate is the empirical middle: fewer than 100 for a bare API, thousands for a
+	// rich content site. 300 × depth-multiplier is a workable center.
+	pagesEstimate := 300 * depth
+	// Fast mode: cap the estimate — the operator picked fast because they don't want a long
+	// tail. Deep mode: no cap — the operator opted into the wait.
+	if cfg.Mode == "fast" && pagesEstimate > 1500 {
+		pagesEstimate = 1500
+	}
+	// 200 ms per page + 1.5× hedge for network jitter and JS-heavy pages.
+	seconds := (pagesEstimate * 300) / 1000
+	if seconds < 60 {
+		seconds = 60
+	}
+	return seconds
 }
 
 // gau: historical URLs from public archives (Wayback, CommonCrawl, …). Zero requests to target.
