@@ -11,80 +11,75 @@ import (
 // meta.partial_reason was missing, config.json / Okta / AWS-API-Gateway leaks were invisible.
 // Each test here anchors one of the fixes so a regression can't slip past `go test -short`.
 
-// TestFeroxBudget_NoRecursionSinglePass — since v0.1.4 ferox runs with --no-recursion,
-// so the budget is a straight single-pass calculation: (lines * (1+exts) * 2) / rate.
-// common.txt with no extensions at rate 30 gives 316s. A regression that reintroduced the
-// depth multiplier would push this back to the 1000s+ band; dropping the 2× hedge to 1×
-// would leave 158s — too tight for warm-up + concurrency ramp.
-func TestFeroxBudget_NoRecursionSinglePass(t *testing.T) {
+// makeWordlist writes N "word\n" lines to a temp file and returns its path — callers cleanup
+// via t.Cleanup. Kept for the mode-aware suite below where every case needs a wordlist.
+func makeWordlist(t *testing.T, n int) string {
+	t.Helper()
 	f, err := os.CreateTemp("", "sift-wl-*.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
-	for i := 0; i < 4750; i++ {
+	for i := 0; i < n; i++ {
 		f.WriteString("word\n")
 	}
 	f.Close()
+	t.Cleanup(func() { os.Remove(f.Name()) })
+	return f.Name()
+}
 
-	// MaxDepth deliberately non-zero to prove the budget is INDEPENDENT of it since v0.1.4.
-	// Exts empty here — the (1+ext) multiplier is exercised in its own test below.
-	cfg := &Config{Rate: 30, MaxDepth: 3, EngineTimeout: 240}
-	got := feroxBudget(cfg, f.Name())
-	// 4750 * 1 * 2 / 30 = 316s. Any drift outside 200–500s is a regression worth failing on.
-	if got < 200 {
-		t.Errorf("feroxBudget for common.txt at rate 30 derived %ds; expected ≥ 200 — too tight for warm-up + retry overhead", got)
-	}
-	if got > 500 {
-		t.Errorf("feroxBudget for common.txt derived %ds; expected ≤ 500 — someone re-introduced the depth multiplier or over-hedged", got)
+// TestFeroxBudget_StandardMode — the default. common.txt (4750) + 5 exts at rate 30 must
+// land 1500–2500s; that band matches round-7 sanity finish times on www.cyberwhiz + otatool.
+// A drift below 1500 would re-open the "truncate on live target" bug; a drift above 2500
+// would waste batch wall-time on false idle.
+func TestFeroxBudget_StandardMode(t *testing.T) {
+	wl := makeWordlist(t, 4750)
+	cfg := &Config{Rate: 30, MaxDepth: 2, EngineTimeout: 240, Mode: "standard",
+		Exts: []string{"php", "json", "txt", "config", "bak"}}
+	got := feroxBudget(cfg, wl)
+	// 4750 * 6 * 2 / 30 = 1900s.
+	if got < 1500 || got > 2500 {
+		t.Errorf("standard mode budget for common.txt+5exts@30rps = %ds; expected 1500–2500", got)
 	}
 }
 
-// TestFeroxBudget_ExtensionMultiplier — the v0.1.4-rc failure mode: -e php,json,txt,config,bak
-// turns 4750 words into 28,500 requests, but the first draft of the formula ignored -e and
-// derived 316s. Live sweep still hit feroxbuster_timeout. This test locks in the (1+len(exts))
-// multiplier so a maintainer who drops it fails a targeted assertion instead of noticing on a
-// live sweep three weeks later.
-func TestFeroxBudget_ExtensionMultiplier(t *testing.T) {
-	f, _ := os.CreateTemp("", "sift-wl-*.txt")
-	defer os.Remove(f.Name())
-	for i := 0; i < 4750; i++ {
-		f.WriteString("word\n")
-	}
-	f.Close()
-
-	base := feroxBudget(&Config{Rate: 30, MaxDepth: 2, EngineTimeout: 240}, f.Name())
-	// 5 extensions → 6× more requests → 6× the budget.
-	withExts := feroxBudget(
-		&Config{Rate: 30, MaxDepth: 2, EngineTimeout: 240, Exts: []string{"php", "json", "txt", "config", "bak"}},
-		f.Name(),
-	)
-	ratio := withExts / base
-	if ratio < 5 || ratio > 7 {
-		t.Errorf("feroxBudget with 5 exts must scale ~6× (each word becomes 6 requests); base=%d withExts=%d ratio=%d", base, withExts, ratio)
-	}
-	// The absolute number for common.txt+5exts should sit in the 1500–2500s band — enough
-	// for 28,500 requests at 30 req/s + 2× hedge, but not runaway.
-	if withExts < 1500 || withExts > 2500 {
-		t.Errorf("feroxBudget for common.txt +5 exts at rate 30 = %ds; expected 1500–2500", withExts)
+// TestFeroxBudget_FastMode — fast strips both recursion and extensions. Even with -e set the
+// budget MUST NOT scale with ext count (fast's runFerox drops -x). A regression here would
+// give fast users a budget that assumes work runFerox isn't actually doing.
+func TestFeroxBudget_FastMode(t *testing.T) {
+	wl := makeWordlist(t, 4750)
+	// Set Exts AND non-zero MaxDepth — fast mode MUST ignore both.
+	cfg := &Config{Rate: 30, MaxDepth: 3, EngineTimeout: 240, Mode: "fast",
+		Exts: []string{"php", "json", "txt", "config", "bak"}}
+	got := feroxBudget(cfg, wl)
+	// 4750 * 2 / 30 = 316s.
+	if got < 200 || got > 500 {
+		t.Errorf("fast mode budget for common.txt@30rps = %ds; expected 200–500 (ext + depth must be ignored)", got)
 	}
 }
 
-// TestFeroxBudget_IgnoresDepth — ensures a maintainer who re-adds `cfg.MaxDepth` into the
-// formula fails a targeted test, not a fuzzy bound. Two calls with identical wordlist and
-// rate but different MaxDepth MUST return the same number.
-func TestFeroxBudget_IgnoresDepth(t *testing.T) {
-	f, _ := os.CreateTemp("", "sift-wl-*.txt")
-	defer os.Remove(f.Name())
-	for i := 0; i < 500; i++ {
-		f.WriteString("word\n")
+// TestFeroxBudget_DeepMode — deep re-enables ext + depth multipliers and the 3× hedge (v0.1.3
+// empirical). common.txt +5 exts @ rate 30, MaxDepth 2 → depthMul=3 → 4750*6*3*3/30 = 8550s.
+// A regression that dropped the 3× hedge or the depth multiplier would truncate on rich hosts.
+func TestFeroxBudget_DeepMode(t *testing.T) {
+	wl := makeWordlist(t, 4750)
+	cfg := &Config{Rate: 30, MaxDepth: 2, EngineTimeout: 240, Mode: "deep",
+		Exts: []string{"php", "json", "txt", "config", "bak"}}
+	got := feroxBudget(cfg, wl)
+	if got < 5000 || got > 12000 {
+		t.Errorf("deep mode budget for common.txt+5exts+d2@30rps = %ds; expected 5000–12000", got)
 	}
-	f.Close()
+}
 
-	shallow := feroxBudget(&Config{Rate: 30, MaxDepth: 0, EngineTimeout: 240}, f.Name())
-	deep := feroxBudget(&Config{Rate: 30, MaxDepth: 5, EngineTimeout: 240}, f.Name())
-	if shallow != deep {
-		t.Errorf("feroxBudget must ignore MaxDepth since v0.1.4 (--no-recursion); got shallow=%d deep=%d", shallow, deep)
+// TestFeroxBudget_ModeOrdering — hard invariant: fast ≤ standard ≤ deep for the same input.
+// If a maintainer swaps two branches by accident this fires immediately.
+func TestFeroxBudget_ModeOrdering(t *testing.T) {
+	wl := makeWordlist(t, 1000)
+	exts := []string{"php", "json", "txt"}
+	fast := feroxBudget(&Config{Rate: 30, MaxDepth: 2, Mode: "fast", Exts: exts}, wl)
+	standard := feroxBudget(&Config{Rate: 30, MaxDepth: 2, Mode: "standard", Exts: exts}, wl)
+	deep := feroxBudget(&Config{Rate: 30, MaxDepth: 2, Mode: "deep", Exts: exts}, wl)
+	if !(fast <= standard && standard <= deep) {
+		t.Errorf("mode ordering violated: fast=%d standard=%d deep=%d", fast, standard, deep)
 	}
 }
 

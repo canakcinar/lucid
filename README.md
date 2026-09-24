@@ -76,8 +76,9 @@ brew install feroxbuster ffuf
 | flag | meaning | default |
 | :-- | :-- | :-- |
 | `-w` | wordlist handed to feroxbuster/ffuf | — |
-| `-e` | extensions for the brute engine (`php,html,json`) | — |
-| `-depth` | crawl/recursion depth for katana & ferox | 2 |
+| `-e` | extensions for the brute engine (`php,html,json`) — ignored in `-mode fast` | — |
+| `-mode` | ferox aggressiveness: `fast` (no ext, no recursion) / `standard` (ext, no recursion) / `deep` (ext + recursion) | `standard` |
+| `-depth` | recursion depth (crawl for katana; brute for ferox **only in `-mode deep`**) | 2 |
 | `-c` | concurrent requests (sift's cleanup fetches) | 20 |
 | `-t` | request timeout (s) | 15 |
 | `-delay` | base delay per request (ms); auto-backoff on 429/503 | 0 |

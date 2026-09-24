@@ -171,6 +171,18 @@ type Config struct {
 	// override without a code change.
 	engineTimeoutSetByUser bool
 
+	// Mode selects the ferox aggressiveness profile:
+	//   - "fast"     : ferox --no-recursion, extensions IGNORED (wordlist only). Cheapest;
+	//                  best for a first-look sweep across many hosts.
+	//   - "standard" : ferox --no-recursion, extensions applied (default). Recursion is
+	//                  katana's job; ferox does one clean pass over the wordlist × exts.
+	//   - "deep"     : ferox recurses (respects MaxDepth), extensions applied. Slowest;
+	//                  use when you know the target has unlinked sub-directories that
+	//                  katana can't see and are worth blind brute.
+	// The mode drives runFerox's argv AND feroxBudget's deadline formula — the two MUST
+	// stay in sync or the fast mode will hit a deadline meant for the deep mode.
+	Mode string
+
 	// Resume/checkpoint plumbing. CheckpointPath, when set, makes the scanner:
 	//   - open the file in append mode and write one Finding per line inside record()
 	//   - cache the discovery union to <CheckpointPath>.candidates.json
@@ -394,6 +406,8 @@ func main() {
 	flag.IntVar(&cfg.Threshold, "threshold", -1, "simhash hamming threshold (-1 = auto)")
 	flag.IntVar(&cfg.MaxDepth, "depth", 2, "recursion depth (0 = no recursion)")
 	flag.BoolVar(&cfg.Bypass, "bypass", true, "run nomore403 on 403/401 findings if installed")
+	flag.StringVar(&cfg.Mode, "mode", "standard",
+		"ferox aggressiveness: fast (no ext, no recursion) | standard (ext, no recursion) | deep (ext, recursion)")
 	auditMode := flag.Bool("audit", false, "run integration audit (stands up a local mock, exercises every engine) and exit")
 	versionFlag := flag.Bool("version", false, "print the sift version and exit")
 	flag.BoolVar(&cfg.Archive, "archive", true, "pull historical paths via gau if installed")
@@ -445,6 +459,14 @@ func main() {
 			cfg.engineTimeoutSetByUser = true
 		}
 	})
+	// -mode is a lever with three legal positions; any other value is a typo the operator
+	// would only notice after a wasted scan. Fail loudly instead of silently running standard.
+	switch cfg.Mode {
+	case "fast", "standard", "deep":
+	default:
+		fmt.Fprintf(os.Stderr, "sift: -mode must be fast | standard | deep, got %q\n", cfg.Mode)
+		os.Exit(2)
+	}
 	// -version prints and exits BEFORE -audit and the URL requirement so a packaging script
 	// (`sift -version` in a Dockerfile / brew formula) doesn't need to hand the binary a URL
 	// just to learn what version it shipped.

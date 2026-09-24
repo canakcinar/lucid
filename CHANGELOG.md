@@ -4,6 +4,26 @@ All notable changes to sift are recorded here. Format follows [Keep a Changelog]
 
 ## [Unreleased]
 
+## [v0.1.5] — 2026-09-24
+
+Adds a `-mode` selector so the operator picks the ferox aggressiveness profile up front instead of getting the one default. Three modes, one formula per mode; `feroxBudget` and `runFerox` are locked together via tests so a future change in one without the other fails at `go test`, not on a live sweep.
+
+### Added
+- **`-mode fast | standard | deep`** (default `standard`):
+  - `fast` — `--no-recursion`, extensions ignored (`-x` dropped). Cheapest; use for a first-look sweep across many hosts.
+  - `standard` — `--no-recursion`, extensions applied (v0.1.4 shape).
+  - `deep` — recursion at `MaxDepth+1`, extensions applied. Slowest; use when the target has unlinked sub-directories that katana can't see and are worth blind brute.
+- Invalid `-mode` fails loudly with exit 2 and a one-line usage message.
+- **`feroxBudget` becomes mode-aware**:
+  - fast: `lines × 2 / rate`
+  - standard: `lines × (1+exts) × 2 / rate`
+  - deep: `lines × (1+exts) × depth × 3 / rate` (depth cap 3, 3× hedge from v0.1.3 empirical calibration)
+- **4 new tests** (`round6_test.go`): `TestFeroxBudget_StandardMode`, `TestFeroxBudget_FastMode`, `TestFeroxBudget_DeepMode`, `TestFeroxBudget_ModeOrdering` (fast ≤ standard ≤ deep). The ordering test catches "someone swapped two switch branches" before a maintainer notices.
+
+### Changed
+- `runFerox` argv is now mode-driven: `-n` in fast/standard, `-d MaxDepth+1` in deep; `-x` in standard/deep, omitted in fast.
+- README flag table gains `-mode`; `-e` and `-depth` notes now reference the mode gate.
+
 ## [v0.1.4] — 2026-09-24
 
 Architectural fix for the "ferox truncates on every real target" problem. v0.1.3 measured the recursion cost accurately (1400–1550s) but left the recursion in place; v0.1.4 removes the recursion because that work belongs to katana. Ferox now covers "unlinked path" surface only. Live sanity on the same two targets round-7 measured: coverage went from **partial → complete**, findings held (195→197 on www.cyberwhiz, 4→5 on otatool).
@@ -88,7 +108,8 @@ First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / k
 - `-audit` runs in ~13 s on a stock CI runner; the default `go test ./...` suite is ~1 s (integration and benchmark suites are behind build tags).
 - Verify by tag: `go install github.com/canakcinar/sift@v0.1.0` and run `sift -version`.
 
-[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.5...HEAD
+[v0.1.5]: https://github.com/canakcinar/sift/releases/tag/v0.1.5
 [v0.1.4]: https://github.com/canakcinar/sift/releases/tag/v0.1.4
 [v0.1.3]: https://github.com/canakcinar/sift/releases/tag/v0.1.3
 [v0.1.2]: https://github.com/canakcinar/sift/releases/tag/v0.1.2

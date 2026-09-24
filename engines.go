@@ -48,25 +48,28 @@ import (
 //
 // --------------------------------------------------------------------------------------------
 
-// feroxBudget derives a work-appropriate ferox/ffuf timeout from the wordlist size and rate.
-// Since v0.1.4 the engine runs with --no-recursion (see runFerox comment for why), so the
-// budget is a straight single-pass calculation:
+// feroxBudget derives a work-appropriate ferox/ffuf timeout from the wordlist size, rate, and
+// the current Mode. The formula stays close to what a request-count calculation would give:
 //
-//	requests = lines × (1 + len(cfg.Exts))     // each word tested bare + each extension
-//	seconds  = requests × 2.0 / rate           // 2.0× hedge for jitter + concurrency ramp
+//	fast     : lines            × 2      / rate     (single pass, no ext, 2× jitter hedge)
+//	standard : lines × (1+exts) × 2      / rate     (single pass, ext,    2× jitter hedge)
+//	deep     : lines × (1+exts) × depth  × 3 / rate (recursive; 3× hedge from v0.1.3 calibration)
 //
-// The (1 + len(exts)) multiplier is what round-7's first v0.1.4-rc missed and re-truncated on
-// live sweeps: -e php,json,txt,config,bak turns 4750 words into 4750 × 6 = 28,500 requests,
-// so 316s (my first draft) was 6× short. Floor 60s so a small wordlist doesn't derive a <5s
-// deadline that a warm-up handshake alone can exceed.
+// The (1+exts) factor is what round-7's v0.1.4-rc1 missed (-e php,json,txt,config,bak turns
+// each word into 6 requests). The 3× hedge in deep mode is empirical: the round-7 raw-ferox
+// measurements (www 1552s, otatool 1374s) fit a depth-3, recursion-on, ext-5 workload at
+// rate 30 with that multiplier. Floor 60s so a tiny wordlist doesn't derive a <5s deadline.
+//
+// The formula MUST track what runFerox actually asks ferox to do; a mode change here without
+// a matching change in runFerox (or vice-versa) means the deadline is either too tight (deep
+// runtime under a standard budget → PARTIAL) or too loose (fast runtime under a deep budget →
+// idle wall-time waste in batch mode). Round-7 already lived through both failure modes.
 //
 // History:
-//   - v0.1.2: lines × depth × 1.5 / rate → 712s predicted, 1400s+ real. 1.5× hedge undershot.
-//   - v0.1.3: 3.0× hedge, still recursive. 1425s predicted, matched. But 1425s per target ×
-//     24 targets is untenable batch throughput.
-//   - v0.1.4: kill the recursion (delegate to katana) → single-pass; correctly account for
-//     -e extensions → ≈1900s for common.txt+5exts, ≈316s for common.txt alone. Ferox now
-//     covers unlinked paths only, katana covers linked sub-directories.
+//   - v0.1.2: (lines × depth × 1.5 / rate). 712s predicted; 1400s+ measured — 1.5× hedge undershot.
+//   - v0.1.3: 3.0× hedge, still recursive. 1425s predicted, matched.
+//   - v0.1.4: killed recursion in ferox → single-pass, extension-aware — but no mode selector.
+//   - v0.1.5 (this): mode selector; three profiles, one formula that matches the argv.
 func feroxBudget(cfg *Config, wordlist string) int {
 	lines := wordlistLineCount(wordlist)
 	if lines <= 0 {
@@ -76,10 +79,25 @@ func feroxBudget(cfg *Config, wordlist string) int {
 	if rate <= 0 {
 		rate = 40 // ferox's default parallelism-driven rate is ~40 req/s on a warm host
 	}
-	// Extension multiplier: -e php,json,txt turns each word into 4 requests (bare + 3 ext).
-	// Miss this and the whole wordlist × ext-count budget is off by a factor of len(exts)+1.
-	extMul := 1 + len(cfg.Exts)
-	seconds := (lines * extMul * 2) / rate
+	var seconds int
+	switch cfg.Mode {
+	case "fast":
+		// No extension multiplier, no depth multiplier — just wordlist × jitter hedge.
+		seconds = (lines * 2) / rate
+	case "deep":
+		// Extension multiplier + depth multiplier (recursion) + 3× hedge for recursion overhead
+		// (v0.1.3 empirical). Depth cap at 3 keeps -d 5 from deriving a 3-hour deadline.
+		extMul := 1 + len(cfg.Exts)
+		depthMul := cfg.MaxDepth + 1
+		if depthMul > 3 {
+			depthMul = 3
+		}
+		seconds = (lines * extMul * depthMul * 3) / rate
+	default:
+		// standard (also the fallback for unset Mode — library caller's safety net).
+		extMul := 1 + len(cfg.Exts)
+		seconds = (lines * extMul * 2) / rate
+	}
 	if seconds < 60 {
 		seconds = 60
 	}
@@ -317,18 +335,20 @@ func runLines(cmd *exec.Cmd) ([]string, error) {
 	return res, err
 }
 
-// feroxbuster: single-pass brute engine. --json gives url+status per hit, so sift can skip
-// re-fetching a uniform 403/401 wall (the status already tells it those are the wall).
+// feroxbuster: brute engine with three aggressiveness profiles (Config.Mode). --json gives
+// url+status per hit, so sift can skip re-fetching a uniform 403/401 wall.
 //
-// Round-7 change: --no-recursion. Ferox by default re-fuzzes the whole wordlist inside every
-// 2xx/3xx/401/403 hit, so `common.txt -d 3` on a rich host executes ≈ hit_count^depth requests
-// (measured 46,560 requests for www.cyberwhiz.co.uk = ~10× baseline, 26 minutes wall-clock).
-// The architectural fix: recursion is katana's job (it extracts linked sub-paths from HTML +
-// JS). Ferox at depth 1 covers the "unlinked path" surface (blind endpoints, hidden files),
-// which is what a brute engine is uniquely good at. Sub-directory content that katana can see
-// still gets crawled; content that katana can't see is exactly what gau/archive is for.
-// Result: ferox wall-time drops ~10× on rich hosts, with negligible finding loss (the round-7
-// measurement showed ~10-15 unique unlinked hits vs 100+ katana-visible ones).
+//	fast     : -n (no recursion), no -x extensions.       Cheapest.
+//	standard : -n (no recursion),    -x extensions.       Default. (v0.1.4 shape.)
+//	deep     :    recursion at MaxDepth+1, -x extensions. Slowest.
+//
+// Round-7 background: default ferox re-fuzzes the whole wordlist inside every 2xx/3xx/401/403
+// hit, so `common.txt -d 3` on a rich host executes ≈ hit_count^depth requests (measured
+// 46,560 requests for www.cyberwhiz.co.uk = ~10× baseline, 26 minutes wall-clock). "Standard"
+// mode delegates that sub-path work to katana (link extraction from HTML + JS), which is what
+// katana is uniquely good at. "Deep" mode still exists for hosts where the operator knows the
+// sub-directory surface has unlinked content — brute is the only tool for that job — at the
+// cost of the exponential wall-time. "Fast" is the cheapest first-look profile.
 func runFerox(targetURL, wordlist string, cfg *Config) map[string]int {
 	if wordlist == "" || !haveBin("feroxbuster") {
 		return nil
@@ -339,11 +359,20 @@ func runFerox(targetURL, wordlist string, cfg *Config) map[string]int {
 	}
 	tmp.Close()
 	defer func() { os.Remove(tmp.Name()); unregisterTemp(tmp.Name()) }()
-	// -n (no recursion) is the exponential-blowup fix (see comment above). Depth-driven
-	// discovery is delegated to katana; ferox does a single-pass unlinked-path sweep.
 	a := []string{"-u", targetURL, "-w", wordlist, "--json", "-o", tmp.Name(), "--silent", "-k",
-		"-n", "-t", strconv.Itoa(cfg.Concurrency)}
-	if len(cfg.Exts) > 0 {
+		"-t", strconv.Itoa(cfg.Concurrency)}
+	// Recursion policy is mode-driven: fast/standard turn it off, deep respects MaxDepth+1.
+	// A missing -mode (unset library caller) defaults to standard for backward-compatible
+	// safety — a fresh library user who forgot to set Mode gets the sane no-recursion path,
+	// not the exponential one.
+	if cfg.Mode == "deep" {
+		a = append(a, "-d", strconv.Itoa(cfg.MaxDepth+1))
+	} else {
+		a = append(a, "-n") // fast + standard + unset
+	}
+	// Extensions are applied in standard and deep; fast ignores them so the wordlist × ext
+	// blow-up doesn't happen when the operator picked fast for a reason.
+	if cfg.Mode != "fast" && len(cfg.Exts) > 0 {
 		a = append(a, "-x", strings.Join(trimDots(cfg.Exts), ","))
 	}
 	if cfg.Rate > 0 { // throttle the loud brute engine too, not just sift's own fetches
