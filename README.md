@@ -1,6 +1,6 @@
 # sift 🧹
 
-<sub>~7.3k lines Go · 115+ tests · 71.8% statement coverage · race-detector clean · 14/14 integration audit passing</sub>
+<sub>~7.5k lines Go · 126 tests · 65.5% statement coverage · race-detector clean · 14/14 integration audit passing · MIT</sub>
 
 ## Testing
 
@@ -14,7 +14,18 @@ go test -bench=. -benchmem -run=^$ ./...   # SimHash / judge / collapse baseline
 
 `-tags=integration` fires the audit end-to-end (mock server + every installed engine wrapper).
 `-short` skips the race stress test and the integration test — use it for the tight local edit
-loop. CI should run at least `go test -race ./...` and `go test -tags=integration ./...`.
+loop. CI runs all of the above on ubuntu / macOS / Windows (see `.github/workflows/ci.yml`).
+
+**Hot-path bench baselines** (Apple M-series, in-repo; kept in `bench_test.go`):
+
+| bench | budget |
+| :-- | :-- |
+| `BenchmarkSimHash_HTMLPage` (~4 KB body) | ~120 µs / op |
+| `BenchmarkSimHash_JSONShortBody` | ~10 µs / op |
+| `BenchmarkJudge_TypicalProfile` (per candidate) | ~50 ns / op |
+| `BenchmarkCollapse_100Findings` | ~200 µs / op |
+
+If a change regresses any of these by more than ~2×, note it in the PR — the numbers matter at 20k-candidate scale.
 
 A content-discovery **orchestrator**. Point it at a URL: mature tools do the discovery and
 bypass work, and sift's own **SimHash cleanup core** — the one piece written from scratch —
@@ -214,11 +225,21 @@ external runtime. On Unix the engine wrappers put child processes into their own
 so Ctrl-C kills grandchildren too (`procgroup_unix.go`); on Windows the fallback signals the
 direct child only (`procgroup_other.go`) because Windows process groups have different semantics.
 
-Note: sift is developed and tested on macOS. Windows binaries build clean but Ctrl-C
-grandchild-kill has not been exercised on a live Windows host — a stuck ferox/nomore403
-after a Windows Ctrl-C may need Task Manager cleanup.
+Note: CI builds and runs the short test slice on ubuntu / macOS / Windows on every push, so a
+platform-broken build fails at the PR gate. The remaining honest caveat is runtime-only: on
+Windows the Ctrl-C grandchild-kill path is a fallback (procgroup_other.go signals the direct
+child), and a stuck ferox/nomore403 after a Windows Ctrl-C may need Task Manager cleanup.
 
 Engine binaries (feroxbuster, ffuf, katana, gau, nomore403) must be in `PATH` on whichever OS
 you run — sift orchestrates them, it does not bundle them.
+
+## See also
+
+- **[siftpipe](https://github.com/canakcinar/sift-pipeline)** — a deterministic 5-stage pentest
+  pipeline (`profile → sift → extract → vigolium → verify → report`) that consumes sift's `-o`
+  JSON as its recon input and feeds the discovered URL set to a vuln scanner + a Go verifier
+  that turns each vigolium finding into a CONFIRMED / REJECTED / UNVERIFIED verdict without
+  an LLM in the loop. Use it when policy forbids AI in the tool chain but you still want the
+  quality of manual triage.
 
 *For authorized security testing only.*

@@ -6,13 +6,18 @@ on:
   pull_request:
 
 jobs:
-  # test runs the fast checks that must pass on every push:
-  #   - go vet ./...           — catches copylocks, printf, and shadow classes of bug at build time
-  #   - go build ./...         — verifies the tree compiles on the pinned Go version
-  #   - go test -short ./...   — the ~0.5s smoke slice; the full suite runs in the coverage job
+  # test runs the fast checks across every supported platform. The matrix is what
+  # gives Windows + macOS coverage: procgroup_unix.go and procgroup_other.go are
+  # under build tags, so ONLY a real cross-platform run proves both compile and
+  # test. A ubuntu-only pipeline would silently miss a broken //go:build !unix
+  # branch until a user tried to install on Windows.
   test:
-    name: vet + build + test-short
-    runs-on: ubuntu-latest
+    name: vet + build + test-short (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -22,12 +27,17 @@ jobs:
       - run: go build ./...
       - run: go test -short ./...
 
-  # test-race runs the concurrency stress suite under -race. The full test set is ~11s locally;
-  # -race roughly doubles that, but it's the only way to catch a scanner-worker data race before
-  # a user reports "sometimes findings are missing" — worth the CI minute.
+  # test-race runs the concurrency stress suite under -race. Unix-only: the -race
+  # detector needs cgo and the runners' native toolchain, and the Windows race
+  # detector on GitHub's stock image has historically been fragile — pin the
+  # signal to Linux + macOS so a flake there doesn't hide a real Linux race.
   test-race:
-    name: test -race
-    runs-on: ubuntu-latest
+    name: test -race (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -35,10 +45,11 @@ jobs:
           go-version: '1.22'
       - run: go test -race ./...
 
-  # audit runs the -audit integration self-check plus the //go:build integration tag suite.
-  # Kept in its own job because it stands up an in-process httptest server per test case and
-  # a maintainer bisecting a functional regression wants a SEPARATE red/green signal from the
-  # unit slice.
+  # audit runs the -audit integration self-check plus the //go:build integration
+  # tag suite. Kept on ubuntu only: the audit stands up an in-process httptest
+  # server that binds to 127.0.0.1 and depends on POSIX-y process semantics
+  # (setpgid teardown) — worth one green signal there; the cross-platform build
+  # is proved by the matrix job above.
   audit:
     name: audit + integration
     runs-on: ubuntu-latest

@@ -4,7 +4,25 @@ All notable changes to sift are recorded here. Format follows [Keep a Changelog]
 
 ## [Unreleased]
 
-## [v0.1.0] — 2026-09-24
+## [v0.1.1] — 2026-09-24
+
+Housekeeping release. **Rewrites v0.1.0's history to purge accidentally-committed engagement scan JSONs** and adds the CI + test coverage that v0.1.0's audit round-4 missed. The v0.1.0 tag is deleted and replaced by v0.1.1 — anyone who already fetched v0.1.0 should re-clone.
+
+### Fixed
+- **Security**: 28 scratch scan JSONs (`s_*.json`, `scan_*.json`, `geoip*.json`) were removed from the working tree AND purged from the entire git history via `git filter-branch`; the working ref backup and reflog were dropped and `git gc --aggressive --prune=now` collapsed them. `.gitignore` now blocks these prefixes at the source so a future `git add -A` can't re-introduce them.
+
+### Added
+- **CI matrix**: ubuntu-latest / macos-latest / windows-latest for vet + build + test-short. `procgroup_other.go` (Windows fallback) is now proved compiling on every push. Race job stays on Linux + macOS (the Windows race detector on GitHub's stock image has been fragile historically).
+- **Throttle test suite** (`throttle_test.go`, 5 tests): the WAF-adaptive pacer had 0% coverage before. Now covers idle base, penalize doubling + ceiling clamp, ok decay toward base without undershoot, and a 16-worker concurrent CAS stress test that catches a lost-update regression.
+- **README**: hot-path benchmark baselines (SimHash / Judge / Collapse) surfaced from `bench_test.go` comments — a future regression >2× on any of them is now a review item, not a silent walk-off. Cross-link to `siftpipe` (the deterministic 5-stage pentest pipeline that consumes sift's `-o` JSON).
+
+### Changed
+- `README.md` subtitle: test count 126, coverage 65.5%, MIT — real numbers from the current tree, not decayed hardcoded ones.
+- Windows caveat rewritten now that CI proves the build; the honest remaining note is runtime-only (grandchild-kill fallback via direct-child signal).
+
+## [v0.1.0] — 2026-09-24 (retracted)
+
+Retracted — see v0.1.1. Tag was deleted from the local repo before any push; the v0.1.0 SHA is no longer reachable.
 
 First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / katana / gau / nomore403, with an in-process cleanup layer (per-directory soft-404 calibration + SimHash) and a HAR 1.2 exporter that hands every finding to Burp / ZAP / mitmproxy for manual replay.
 
@@ -27,5 +45,6 @@ First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / k
 - `-audit` runs in ~13 s on a stock CI runner; the default `go test ./...` suite is ~1 s (integration and benchmark suites are behind build tags).
 - Verify by tag: `go install github.com/canakcinar/sift@v0.1.0` and run `sift -version`.
 
-[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.1...HEAD
+[v0.1.1]: https://github.com/canakcinar/sift/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/canakcinar/sift/releases/tag/v0.1.0
