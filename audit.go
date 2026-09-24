@@ -58,16 +58,27 @@ func runAudit() int {
 		Throttle: NewThrottle(0)}
 
 	// Layer 3 — engine wrappers end-to-end against the mock.
+	//
+	// Every engine row ALWAYS renders — even when the binary is missing. Rationale: the
+	// row count is a contract (TestRunAudit_Integration asserts exactly 14). A missing
+	// engine surfaces as a "skipped" row (recorded as pass so it doesn't inflate the fail
+	// count — the binary:X row already fails and covers the "install this" signal). This
+	// keeps the audit output shape stable across dev, CI, and stock user installs.
+	addSkipped := func(name string) { add(name, true, "skipped — binary missing (see binary:* row)") }
 	if haveBin("feroxbuster") {
 		res := runFerox(mock.URL(), mock.wordlist, cfg)
 		ok := res[mock.URL()+"/admin"] == 200
 		add("engine:feroxbuster (finds /admin=200)", ok,
 			fmt.Sprintf("returned %d URLs w/ status", len(res)))
+	} else {
+		addSkipped("engine:feroxbuster (finds /admin=200)")
 	}
 	if haveBin("katana") {
 		urls := runKatana(mock.URL(), cfg)
 		// katana on localhost can be quiet; we don't fail the check, we surface the count
 		add("engine:katana (runs)", true, fmt.Sprintf("returned %d URLs (localhost katana varies)", len(urls)))
+	} else {
+		addSkipped("engine:katana (runs)")
 	}
 	if haveBin("gau") {
 		// gau reaches out to public archives (Wayback, CommonCrawl) which are slow — give it
@@ -87,12 +98,16 @@ func runAudit() int {
 		// treat as informational — a low count often means Wayback rate-limited, not "broken"
 		add("engine:gau (reaches archives)", true,
 			fmt.Sprintf("%d URLs for example.com (archives can rate-limit; count varies)", len(urls)))
+	} else {
+		addSkipped("engine:gau (reaches archives)")
 	}
 	if haveBin("nomore403") {
 		hit, ok := runNomore403(mock.URL()+"/secret", cfg)
 		tech := hit.String()
 		add("engine:nomore403 (XFF bypass end-to-end)", ok && strings.Contains(tech, "X-Forwarded-For"),
 			ternary(ok, "found: "+tech, "no bypass — payloads/schema/timeout misconfigured"))
+	} else {
+		addSkipped("engine:nomore403 (XFF bypass end-to-end)")
 	}
 
 	// Layer 4 — native passive parser (robots.txt + sitemap.xml).
