@@ -233,13 +233,4 @@ child), and a stuck ferox/nomore403 after a Windows Ctrl-C may need Task Manager
 Engine binaries (feroxbuster, ffuf, katana, gau, nomore403) must be in `PATH` on whichever OS
 you run — sift orchestrates them, it does not bundle them.
 
-## See also
-
-- **[siftpipe](https://github.com/canakcinar/sift-pipeline)** — a deterministic 5-stage pentest
-  pipeline (`profile → sift → extract → vigolium → verify → report`) that consumes sift's `-o`
-  JSON as its recon input and feeds the discovered URL set to a vuln scanner + a Go verifier
-  that turns each vigolium finding into a CONFIRMED / REJECTED / UNVERIFIED verdict without
-  an LLM in the loop. Use it when policy forbids AI in the tool chain but you still want the
-  quality of manual triage.
-
 *For authorized security testing only.*

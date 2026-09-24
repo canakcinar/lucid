@@ -14,7 +14,7 @@ Housekeeping release. **Rewrites v0.1.0's history to purge accidentally-committe
 ### Added
 - **CI matrix**: ubuntu-latest / macos-latest / windows-latest for vet + build + test-short. `procgroup_other.go` (Windows fallback) is now proved compiling on every push. Race job stays on Linux + macOS (the Windows race detector on GitHub's stock image has been fragile historically).
 - **Throttle test suite** (`throttle_test.go`, 5 tests): the WAF-adaptive pacer had 0% coverage before. Now covers idle base, penalize doubling + ceiling clamp, ok decay toward base without undershoot, and a 16-worker concurrent CAS stress test that catches a lost-update regression.
-- **README**: hot-path benchmark baselines (SimHash / Judge / Collapse) surfaced from `bench_test.go` comments — a future regression >2× on any of them is now a review item, not a silent walk-off. Cross-link to `siftpipe` (the deterministic 5-stage pentest pipeline that consumes sift's `-o` JSON).
+- **README**: hot-path benchmark baselines (SimHash / Judge / Collapse) surfaced from `bench_test.go` comments — a future regression >2× on any of them is now a review item, not a silent walk-off.
 
 ### Changed
 - `README.md` subtitle: test count 126, coverage 65.5%, MIT — real numbers from the current tree, not decayed hardcoded ones.
