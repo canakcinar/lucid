@@ -331,20 +331,8 @@ func TestNewClient_ForceHTTP2Set(t *testing.T) {
 	}
 }
 
-// TestRunAudit_Integration — the audit itself runs every engine wrapper against a controlled
-// mock. Slow (~15s live) but the single test that exercises runFerox/runFfuf/runKatana/runGau/
-// runNomore403 end-to-end. Skipped in -short mode so a fast local run stays fast.
-func TestRunAudit_Integration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("-short: skipping the live audit integration test")
-	}
-	// runAudit prints heavily; capture stdout by redirecting os.Stdout is fragile in tests, so
-	// we just call it and gate on the return code — 0 means every wired integration worked.
-	code := runAudit()
-	if code != 0 {
-		t.Errorf("runAudit returned %d — some integration check failed (see stderr above)", code)
-	}
-}
+// TestRunAudit_Integration lives in integration_test.go behind -tags=integration so a plain
+// `go test ./...` stays fast. Run `go test -tags=integration ./...` in CI or before releases.
 
 // --- WebSocket / SSE detection ---
 
@@ -479,15 +467,21 @@ func TestFetchWith_ExtraHeadersOverrideCfg(t *testing.T) {
 	target, _ := url.Parse(srv.URL + "/")
 
 	r := fetchWith(client, target, srv.URL+"/x", cfg, map[string]string{
-		"X-Auth":            "extra-overrides", // must WIN over cfg
-		"X-Forwarded-For":   "127.0.0.1",       // additive, no cfg conflict
+		"X-Auth":          "extra-overrides", // must WIN over cfg (same key, mixed case)
+		"X-Forwarded-For": "127.0.0.1",       // additive, no cfg conflict
 	})
 	if r.Err != nil {
 		t.Fatalf("fetchWith: %v", r.Err)
 	}
 	h := <-captured
+	// http.Header.Get canonicalizes on lookup, but the STORED key is whatever was Set(). Assert
+	// on both — a future refactor that changes the storage shape (e.g. a case-preserving map)
+	// would still round-trip Get() but might trip a raw MIMEHeader consumer.
 	if got := h.Get("X-Auth"); got != "extra-overrides" {
 		t.Errorf("extra map failed to override cfg.Headers: got %q want %q", got, "extra-overrides")
+	}
+	if _, ok := h[http.CanonicalHeaderKey("X-Auth")]; !ok {
+		t.Errorf("X-Auth not stored under its canonical key — a raw MIMEHeader consumer would miss it: keys=%v", keysOf(h))
 	}
 	if got := h.Get("X-Forwarded-For"); got != "127.0.0.1" {
 		t.Errorf("extra-only header lost: got %q", got)
@@ -498,6 +492,14 @@ func TestFetchWith_ExtraHeadersOverrideCfg(t *testing.T) {
 	if got := h.Get("User-Agent"); got != "sift-test" {
 		t.Errorf("UA from cfg lost: got %q", got)
 	}
+}
+
+func keysOf(h http.Header) []string {
+	out := make([]string, 0, len(h))
+	for k := range h {
+		out = append(out, k)
+	}
+	return out
 }
 
 // TestFetchWith_BudgetExhausted — fetchWith must honor the same MaxReq budget as fetch.
@@ -520,5 +522,64 @@ func TestFetchWith_BudgetExhausted(t *testing.T) {
 	r := fetchWith(client, target, srv.URL+"/b", cfg, nil)
 	if r.Err == nil {
 		t.Fatal("second call must return errBudget")
+	}
+}
+
+// TestFetchWith_HARHeadersOnBypassReplay — verifyBypass calls fetchWith to replay a
+// nomore403 winning header, and that replay MUST land Server/Set-Cookie/etc into r.Headers
+// so buildHAR entries carry response evidence for the analyst. A guard that only fires in
+// fetch() (and not fetchWith) would silently ship HAR entries without response headers for
+// every verified bypass — this test locks the shared path in.
+func TestFetchWith_HARHeadersOnBypassReplay(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "nginx/1.25")
+		w.Header().Add("Set-Cookie", "sid=abc; HttpOnly")
+		w.Header().Add("Set-Cookie", "csrf=xyz")
+		w.WriteHeader(200)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	cfg := &Config{Timeout: 3, UA: "sift-test", HAROutput: "on"}
+	client := mustNewClient(t, cfg)
+	target, _ := url.Parse(srv.URL + "/")
+	r := fetchWith(client, target, srv.URL+"/x", cfg, map[string]string{"X-Forwarded-For": "127.0.0.1"})
+	if r.Err != nil {
+		t.Fatalf("fetchWith: %v", r.Err)
+	}
+	if r.Headers["Server"] != "nginx/1.25" {
+		t.Errorf("fetchWith bypass replay lost Server: %+v", r.Headers)
+	}
+	if len(r.Cookies) != 2 {
+		t.Errorf("fetchWith bypass replay lost Set-Cookie (want 2, got %d)", len(r.Cookies))
+	}
+}
+
+// TestHeaderFlags_AccumulatesAndJoins — the flag.Var driver for the repeatable -H flag.
+// Two contracts:
+//   1. Set() appends verbatim, so -H "Cookie: a" -H "X-Auth: b" produces both entries
+//      (last-wins would silently drop the operator's first header)
+//   2. String() joins with ", " so the flag package's usage output shows a readable list
+//      (needed by go flag's help formatter — a broken String() would print <nil>)
+func TestHeaderFlags_AccumulatesAndJoins(t *testing.T) {
+	var h headerFlags
+	// Empty state prints as empty string, not "<nil>", so flag help doesn't leak internals.
+	if got := h.String(); got != "" {
+		t.Errorf("empty headerFlags.String() = %q, want empty", got)
+	}
+	// Two Set() calls must both stick — this is the -H "Cookie: a" -H "X-Auth: b" path.
+	if err := h.Set("Cookie: sid=abc"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := h.Set("X-Auth: token"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if len(h) != 2 {
+		t.Fatalf("expected 2 headers accumulated, got %d: %v", len(h), h)
+	}
+	if h[0] != "Cookie: sid=abc" || h[1] != "X-Auth: token" {
+		t.Errorf("Set() order wrong (last-wins would drop the first): %v", h)
+	}
+	if got := h.String(); got != "Cookie: sid=abc, X-Auth: token" {
+		t.Errorf("String() joining: got %q", got)
 	}
 }

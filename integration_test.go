@@ -1,0 +1,78 @@
+//go:build integration
+
+// Integration tests are gated behind -tags=integration so a plain `go test ./...` stays
+// fast (~1s). These tests spin up real external binaries or exercise the audit's full
+// engine-wrapper matrix and each takes seconds to minutes. Run them with:
+//   go test -tags=integration -v ./...
+// in CI (or locally) when validating a release. Without the tag, they don't compile in
+// and `go test ./...` never pays their wall time.
+
+package main
+
+import (
+	"bytes"
+	"io"
+	"os"
+	"strings"
+	"testing"
+)
+
+// TestRunAudit_Integration — the audit itself runs every engine wrapper against a controlled
+// mock. Slow (~15s live) but the single test that exercises runFerox/runFfuf/runKatana/runGau/
+// runNomore403 end-to-end. Behind -tags=integration so `go test ./...` doesn't pay this cost.
+//
+// We capture stdout so we can also assert on the "all N checks passed" line — a return code
+// of 0 alone isn't enough: `runAudit` used to return 0 while quietly skipping a check the
+// operator installed a binary for, and a "0 exit + short report" would look identical to a
+// clean pass.
+func TestRunAudit_Integration(t *testing.T) {
+	// Capture stdout so we can assert on the summary line as well as the exit code.
+	// runAudit prints to os.Stdout directly; swap it in place for the duration of the call.
+	origStdout := os.Stdout
+	rPipe, wPipe, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = wPipe
+	// Drain concurrently so a large capture doesn't deadlock on the pipe buffer.
+	var captured bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		io.Copy(&captured, rPipe)
+		close(done)
+	}()
+
+	code := runAudit()
+
+	wPipe.Close()
+	os.Stdout = origStdout
+	<-done
+	out := captured.String()
+
+	if code != 0 {
+		t.Errorf("runAudit returned %d — some integration check failed. Output tail:\n%s",
+			code, tailN(out, 30))
+	}
+	// The success line is the operator's contract: N checks green. Assert on it so a future
+	// runAudit that silently drops a check (or swaps it for a warning-only variant) can't slip
+	// past a return-code-only gate.
+	if !strings.Contains(out, "all ") || !strings.Contains(out, "checks passed") {
+		t.Errorf("runAudit output missing the 'all N checks passed' summary line — a check may have been silently downgraded. Tail:\n%s",
+			tailN(out, 30))
+	}
+	// Every check row starts with "│ ". A count matches the summary line — if the printer
+	// stops emitting rows, the summary line alone would still look green.
+	rows := strings.Count(out, "│ ")
+	if rows < 12 {
+		t.Errorf("runAudit only rendered %d check rows (expected 14 in a healthy install); output was likely truncated",
+			rows)
+	}
+}
+
+func tailN(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
+}

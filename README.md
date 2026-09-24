@@ -1,6 +1,20 @@
 # sift 🧹
 
-<sub>7,171 lines Go · 110 tests · 71.8% statement coverage · race-detector clean · 14/14 integration audit passing</sub>
+<sub>~7.3k lines Go · 115+ tests · 71.8% statement coverage · race-detector clean · 14/14 integration audit passing</sub>
+
+## Testing
+
+```bash
+go test -short ./...                       # ~0.5s: unit tests only (default local dev)
+go test ./...                              # ~15s: adds race stress tests
+go test -tags=integration -v ./...         # ~15s: adds full runAudit engine matrix
+go test -race -short ./...                 # data-race detector on unit tests
+go test -bench=. -benchmem -run=^$ ./...   # SimHash / judge / collapse baselines
+```
+
+`-tags=integration` fires the audit end-to-end (mock server + every installed engine wrapper).
+`-short` skips the race stress test and the integration test — use it for the tight local edit
+loop. CI should run at least `go test -race ./...` and `go test -tags=integration ./...`.
 
 A content-discovery **orchestrator**. Point it at a URL: mature tools do the discovery and
 bypass work, and sift's own **SimHash cleanup core** — the one piece written from scratch —
@@ -194,11 +208,15 @@ script can gate on `meta.coverage == "complete"` without re-parsing stderr.
 
 ## Cross-platform
 
-sift builds on macOS, Linux, and Windows (`GOOS=windows go build`). The audit's mock target
-is an in-process `httptest` server — no external runtime needed. On Unix the engine wrappers
-put child processes into their own process group so Ctrl-C kills grandchildren too
-(`procgroup_unix.go`); on Windows the fallback signals the direct child only (`procgroup_other.go`)
-because Windows process groups have different semantics.
+sift **cross-compiles** cleanly on macOS, Linux, and Windows — `GOOS=windows GOARCH=amd64 go build`
+produces `sift.exe` and `-audit` uses an in-process `httptest` mock target so it needs no
+external runtime. On Unix the engine wrappers put child processes into their own process group
+so Ctrl-C kills grandchildren too (`procgroup_unix.go`); on Windows the fallback signals the
+direct child only (`procgroup_other.go`) because Windows process groups have different semantics.
+
+Note: sift is developed and tested on macOS. Windows binaries build clean but Ctrl-C
+grandchild-kill has not been exercised on a live Windows host — a stuck ferox/nomore403
+after a Windows Ctrl-C may need Task Manager cleanup.
 
 Engine binaries (feroxbuster, ffuf, katana, gau, nomore403) must be in `PATH` on whichever OS
 you run — sift orchestrates them, it does not bundle them.

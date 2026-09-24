@@ -45,6 +45,10 @@ type harCapture struct {
 	// redirects (scope guard); surfacing it in the HAR entry lets Burp/ZAP show the chain
 	// so an analyst can see "/admin -> /login" without opening the raw body.
 	RedirectURL string
+	// StartedDateTime is the ISO-8601 wall-clock time this capture was taken. main() stamps
+	// it via time.Now().UTC().Format(time.RFC3339). Empty falls back to a deterministic
+	// sentinel so unit tests and diffs stay stable when the caller doesn't care.
+	StartedDateTime string
 }
 
 // harScope holds the mutex + slice for a running scan's captures. Split from Scanner
@@ -147,8 +151,9 @@ func redactedHeaders(in map[string]string) []harNVP {
 }
 
 // buildHAR turns the captured entries into a HAR 1.2 document. Every entry shares the
-// same creator + a placeholder startedDateTime (Date/Now aren't available in the sift
-// hot path; timing precision isn't the point of the export).
+// same creator; startedDateTime comes from harCapture.StartedDateTime when the caller
+// populated it (main() timestamps entries as they land) and falls back to a deterministic
+// epoch when it's empty so tests and diffs stay stable.
 func buildHAR(caps []harCapture) harDocument {
 	doc := harDocument{
 		Log: harLog{
@@ -161,8 +166,12 @@ func buildHAR(caps []harCapture) harDocument {
 		hdrs := redactedHeaders(c.ReqHeaders)
 		body := c.Body
 		truncated := len(body) >= harBodyCap
+		startedAt := c.StartedDateTime
+		if startedAt == "" {
+			startedAt = "1970-01-01T00:00:00Z"
+		}
 		e := harEntry{
-			StartedDateTime: "1970-01-01T00:00:00Z",
+			StartedDateTime: startedAt,
 			Time:            c.Elapsed,
 			Request: harRequest{
 				Method:      firstNonEmpty(c.Method, "GET"),

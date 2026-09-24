@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type cand struct {
@@ -556,15 +557,16 @@ func (s *Scanner) verify(c cand, p Profile, dirAttempts, dirErrs *atomic.Int64) 
 			body = body[:harBodyCap]
 		}
 		s.har.add(harCapture{
-			URL:         c.url,
-			Method:      "GET",
-			ReqHeaders:  s.cfg.Headers,
-			Status:      r.Status,
-			CType:       r.CType,
-			Body:        body,
-			RespHeaders: r.Headers, // set by fetch() when cfg.HAROutput != ""; nil otherwise
-			SetCookies:  r.Cookies, // one per Set-Cookie the server emitted (nil if no cookies)
-			RedirectURL: r.Via,     // Location header on 3xx; empty on 2xx/4xx/5xx
+			URL:             c.url,
+			Method:          "GET",
+			ReqHeaders:      s.cfg.Headers,
+			Status:          r.Status,
+			CType:           r.CType,
+			Body:            body,
+			RespHeaders:     r.Headers, // set by fetch() when cfg.HAROutput != ""; nil otherwise
+			SetCookies:      r.Cookies, // one per Set-Cookie the server emitted (nil if no cookies)
+			RedirectURL:     r.Via,     // Location header on 3xx; empty on 2xx/4xx/5xx
+			StartedDateTime: time.Now().UTC().Format(time.RFC3339),
 		})
 	}
 	f := Finding{URL: c.url, Status: r.Status, Len: r.Len, Source: c.source, Via: r.Via,
