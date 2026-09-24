@@ -8,9 +8,9 @@ import (
 // TestCleanupTempFiles_RemovesRegistered — the shutdown drainer must unlink every
 // file that createTracked (or registerTemp) recorded. This is the whole point of
 // the registry: on SIGINT/SIGTERM the runtime skips deferred os.Remove, and this
-// path is what stops $TMPDIR from filling with sift-*.json orphans.
+// path is what stops $TMPDIR from filling with lucid-*.json orphans.
 func TestCleanupTempFiles_RemovesRegistered(t *testing.T) {
-	f, err := os.CreateTemp("", "sift-cleanup-test-*.tmp")
+	f, err := os.CreateTemp("", "lucid-cleanup-test-*.tmp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestCleanupTempFiles_RemovesRegistered(t *testing.T) {
 // doesn't chase a path that's already gone. This test guarantees unregister
 // actually drops the entry.
 func TestUnregisterTemp_StopsCleanup(t *testing.T) {
-	f, err := os.CreateTemp("", "sift-cleanup-test-*.tmp")
+	f, err := os.CreateTemp("", "lucid-cleanup-test-*.tmp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestUnregisterTemp_StopsCleanup(t *testing.T) {
 // if it forgets to register, the whole handler is inert. Verify the drainer
 // picks up a file made via createTracked without an explicit registerTemp call.
 func TestCreateTracked_RegistersPath(t *testing.T) {
-	f, err := createTracked("", "sift-cleanup-test-*.tmp")
+	f, err := createTracked("", "lucid-cleanup-test-*.tmp")
 	if err != nil {
 		t.Fatal(err)
 	}

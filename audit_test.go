@@ -8,7 +8,7 @@ import (
 
 // TestStartAuditMock_HappyPath verifies the mock starts, produces a wordlist,
 // and closes cleanly. Regression guard for the nil-*os.File panic that used to
-// crash `sift -audit` when CreateTemp returned an error.
+// crash `lucid -audit` when CreateTemp returned an error.
 func TestStartAuditMock_HappyPath(t *testing.T) {
 	m, err := startAuditMock()
 	if err != nil {

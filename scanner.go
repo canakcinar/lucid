@@ -19,7 +19,7 @@ type cand struct {
 	status      int // status reported by the engine (0 = unknown, e.g. katana/gau)
 }
 
-// Scanner is the orchestration brain: external tools discover, sift's SimHash core cleans their
+// Scanner is the orchestration brain: external tools discover, lucid's SimHash core cleans their
 // union per directory, and nomore403 handles 403s. Nothing here re-implements a tool's job.
 type Scanner struct {
 	cfg    *Config
@@ -552,7 +552,7 @@ func (s *Scanner) verify(c cand, p Profile, dirAttempts, dirErrs *atomic.Int64) 
 	}
 	// HAR capture happens BEFORE we decide "hit vs review vs bypass" — the export is a per-URL
 	// snapshot for manual replay, so the operator wants the raw request/response regardless of
-	// how sift categorized it. Skipped when -har is off (s.har is nil).
+	// how lucid categorized it. Skipped when -har is off (s.har is nil).
 	if s.har != nil {
 		body := r.Body
 		if len(body) > harBodyCap {
@@ -636,7 +636,7 @@ func (s *Scanner) verify(c cand, p Profile, dirAttempts, dirErrs *atomic.Int64) 
 		}
 		if ok {
 			// For the header technique nomore403 can win with (X-Forwarded-For: 127.0.0.1,
-			// X-Original-URL: /, …) sift can replay the exact request in-process — the
+			// X-Original-URL: /, …) lucid can replay the exact request in-process — the
 			// payload is a single "Name: value" pair. verifyBypass runs the replay through
 			// the same fetch() plumbing, then asks the dir's Profile whether the response
 			// is still inside the not-found envelope.
@@ -648,7 +648,7 @@ func (s *Scanner) verify(c cand, p Profile, dirAttempts, dirErrs *atomic.Int64) 
 
 // verifyBypass replays a nomore403 winning record when the technique is safely
 // reproducible in-process, then checks whether the response leaves the not-found
-// envelope (the same p.isNotFound sift already uses to distinguish a real page
+// envelope (the same p.isNotFound lucid already uses to distinguish a real page
 // from a soft-404). Returns the Bypass label ("verified:*" or "unverified:*") and,
 // on verified hits, a compact HTML-escaped body preview so the operator can tell a
 // real bypass from a login page or WAF happy-path without hand-replaying.

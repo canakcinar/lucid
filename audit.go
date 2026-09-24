@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// runAudit stands up a controlled mock covering every integration surface sift depends on,
+// runAudit stands up a controlled mock covering every integration surface lucid depends on,
 // runs the real code paths against it, and reports what actually worked. Exits nonzero on any
 // failure — the nomore403-payloads-missing bug is what motivated this file: "binary exists"
 // wasn't enough, we need "the binary produced usable output end-to-end". Use before trusting
@@ -52,7 +52,7 @@ func runAudit() int {
 	add("nomore403:payloads-dir", hdrOK,
 		ternary(hdrOK, pd, "MISSING or empty — headers/verbs techniques will silently no-op"))
 
-	cfg := &Config{Concurrency: 4, Timeout: 8, Insecure: true, UA: "sift-audit/1",
+	cfg := &Config{Concurrency: 4, Timeout: 8, Insecure: true, UA: "lucid-audit/1",
 		Headers: map[string]string{}, Probes: 2, Threshold: -1, MaxDepth: 1,
 		Bypass: true, Archive: false, Wordlist: mock.wordlist, EngineTimeout: 25,
 		Throttle: NewThrottle(0)}
@@ -139,7 +139,7 @@ func runAudit() int {
 	// Report.
 	fail := 0
 	fmt.Println()
-	fmt.Println("╭─────────────────── sift integration audit ────────────────────╮")
+	fmt.Println("╭─────────────────── lucid integration audit ────────────────────╮")
 	for _, c := range checks {
 		mark := "\x1b[32m✓\x1b[0m"
 		if !c.pass {
@@ -157,7 +157,7 @@ func runAudit() int {
 	return 1
 }
 
-// startAuditMock exposes the exact use-cases sift must handle: robots+sitemap+JS+brute hits +
+// startAuditMock exposes the exact use-cases lucid must handle: robots+sitemap+JS+brute hits +
 // a 403 that yields to X-Forwarded-For:127.0.0.1 (nomore403's default header payload).
 type auditMock struct {
 	*httptest.Server
@@ -198,7 +198,7 @@ func startAuditMock() (*auditMock, error) {
 		}
 	})
 	srv := httptest.NewServer(mux)
-	tmp, err := os.CreateTemp("", "sift-audit-*.txt")
+	tmp, err := os.CreateTemp("", "lucid-audit-*.txt")
 	if err != nil {
 		srv.Close()
 		return nil, fmt.Errorf("audit mock wordlist: %w", err)

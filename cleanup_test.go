@@ -26,7 +26,7 @@ func TestCalibrate_AllProbesFailed_MarksUnusable(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 4, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test"}
+	cfg := &Config{Probes: 4, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test"}
 	p := calibrate(mustNewClient(t, cfg), u, srv.URL+"/dir/", cfg)
 
 	if !p.Unusable {
@@ -62,7 +62,7 @@ func TestCalibrate_TooFewSuccessfulProbes_MarksUnusable(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 4, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test"}
+	cfg := &Config{Probes: 4, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test"}
 	p := calibrate(mustNewClient(t, cfg), u, srv.URL+"/dir/", cfg)
 
 	if !p.Unusable {
@@ -82,7 +82,7 @@ func TestCalibrate_BudgetExhausted_StopsAndMarksUnusable(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 4, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test", MaxReq: 1}
+	cfg := &Config{Probes: 4, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test", MaxReq: 1}
 	// Pre-exhaust the budget so the very first probe returns errBudget.
 	atomic.StoreInt64(&cfg.reqCount, 100)
 
@@ -106,7 +106,7 @@ func TestCalibrate_HealthyBaseline_NotUnusable(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 3, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test"}
+	cfg := &Config{Probes: 3, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test"}
 	p := calibrate(mustNewClient(t, cfg), u, srv.URL+"/dir/", cfg)
 
 	if p.Unusable {

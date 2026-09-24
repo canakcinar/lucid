@@ -9,7 +9,7 @@ import (
 
 // setPgid puts the child in its own process group so we can signal the whole
 // group later. Without this, a non-interactive run (systemd/nohup/cron) that
-// puts sift in its own pgid can't propagate SIGTERM to grandchildren of the
+// puts lucid in its own pgid can't propagate SIGTERM to grandchildren of the
 // engine — feroxbuster's rate-limit goroutines, nomore403's payload workers —
 // and they end up orphaned.
 func setPgid(cmd *exec.Cmd) {

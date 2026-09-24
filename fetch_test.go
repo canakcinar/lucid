@@ -31,7 +31,7 @@ func TestNewClient_HTTP2Enabled(t *testing.T) {
 		Concurrency: 1,
 		Timeout:     5,
 		Insecure:    true, // httptest uses a self-signed cert
-		UA:          "sift-test",
+		UA:          "lucid-test",
 	}
 	client, err := newClient(cfg)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestNewClient_BadProxyFailsClosed(t *testing.T) {
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
-			cfg := &Config{Proxy: raw, Timeout: 5, UA: "sift-test"}
+			cfg := &Config{Proxy: raw, Timeout: 5, UA: "lucid-test"}
 			c, err := newClient(cfg)
 			if err == nil {
 				t.Fatalf("bad proxy %q returned nil error and client=%v — auth headers would leak to origin", raw, c)
@@ -79,7 +79,7 @@ func TestNewClient_BadProxyFailsClosed(t *testing.T) {
 // well-formed proxy URL installs a non-nil Transport.Proxy so the request
 // actually routes through it.
 func TestNewClient_GoodProxyInstalled(t *testing.T) {
-	cfg := &Config{Proxy: "http://127.0.0.1:8080", Timeout: 5, UA: "sift-test"}
+	cfg := &Config{Proxy: "http://127.0.0.1:8080", Timeout: 5, UA: "lucid-test"}
 	c, err := newClient(cfg)
 	if err != nil {
 		t.Fatalf("newClient: %v", err)
@@ -120,7 +120,7 @@ func TestFetch_ReusesConnectionOnOversizedBody(t *testing.T) {
 	srv.Start()
 	defer srv.Close()
 
-	cfg := &Config{Concurrency: 1, Timeout: 10, UA: "sift-test"}
+	cfg := &Config{Concurrency: 1, Timeout: 10, UA: "lucid-test"}
 	client, err := newClient(cfg)
 	if err != nil {
 		t.Fatalf("newClient: %v", err)
@@ -183,7 +183,7 @@ func TestFetch_TruncatedBodyReportsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &Config{Concurrency: 1, Timeout: 5, UA: "sift-test"}
+	cfg := &Config{Concurrency: 1, Timeout: 5, UA: "lucid-test"}
 	client, err := newClient(cfg)
 	if err != nil {
 		t.Fatalf("newClient: %v", err)
@@ -210,7 +210,7 @@ func TestFetch_TruncatedBodyReportsError(t *testing.T) {
 // TestNewClient_NoProxy keeps the no-proxy case honest: Transport.Proxy stays
 // nil (net/http won't reach for a proxy on its own).
 func TestNewClient_NoProxy(t *testing.T) {
-	cfg := &Config{Timeout: 5, UA: "sift-test"}
+	cfg := &Config{Timeout: 5, UA: "lucid-test"}
 	c, err := newClient(cfg)
 	if err != nil {
 		t.Fatalf("newClient: %v", err)

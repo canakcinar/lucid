@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to sift are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
+All notable changes to lucid are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
@@ -54,7 +54,7 @@ Empirical timeout calibration. The v0.1.2 formula (`lines × depth × 1.5 / rate
 
 ## [v0.1.2] — 2026-09-24
 
-Field-driven release: closes the 7 gaps the round-5 24-target sweep (CyberWhiz + arcelikiot, both authorized) exposed. Every fix has a test anchoring it; `sift -audit` still ships 14/14 green.
+Field-driven release: closes the 7 gaps the round-5 24-target sweep (CyberWhiz + arcelikiot, both authorized) exposed. Every fix has a test anchoring it; `lucid -audit` still ships 14/14 green.
 
 ### Added
 - **Auto-derived engine timeout for ferox / ffuf**. `feroxBudget(cfg, wordlist)` reads the wordlist line count and derives `lines × (depth-cap 3) × 3/2 / rate`, with a 60s floor and a fallback to `-engine-timeout` when the wordlist is unreadable. common.txt (4750 words) at `-rate 30` now derives ~712s instead of truncating at the flat 300s default. `-engine-timeout` on the CLI still wins (`engineTimeoutSetByUser` guard via `flag.Visit`) so an operator can override for exotic cases.
@@ -97,7 +97,7 @@ First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / k
 - **Resume + diff**: `-checkpoint` writes a JSONL of findings with sibling candidate + profile caches so a killed scan resumes without re-crawling; `-diff` tags URLs whose observable signal drifted against a baseline (status / kind / bypass), not just presence.
 - **Passive discovery**: robots.txt, sitemap.xml (with same-host guard), `.well-known/*`, and OpenAPI probes (swagger.json, v2 / v3 api-docs).
 - **Auth**: `-b` cookie, `-u user:pass` HTTP Basic (with a `-force-empty-pass` opt-in so appliances that use empty passwords are supported explicitly, not by accident), `-H` repeatable extra headers.
-- **Signal handling**: SIGINT / SIGTERM tears down every engine's context, drains registered temp files (`sift-*.json` scratch), and kills each engine's process group (Unix) so non-interactive runs (systemd / nohup / cron) don't leak grandchildren.
+- **Signal handling**: SIGINT / SIGTERM tears down every engine's context, drains registered temp files (`lucid-*.json` scratch), and kills each engine's process group (Unix) so non-interactive runs (systemd / nohup / cron) don't leak grandchildren.
 - **Self-check**: `-audit` stands up an in-process `httptest` server and drives every engine wrapper end-to-end — 14 integration checks; the wire count is asserted exactly by `TestRunAudit_Integration`.
 - **`-version`**: prints the ldflags-injected version and exits (no URL required); default `-ua` string picks up the same value.
 - **CI**: GitHub Actions matrix runs `go vet` + build + `go test -short` on every push, plus a `-race` job and an audit + integration job.
@@ -106,12 +106,12 @@ First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / k
 ### Notes for downstream users
 - Requires Go 1.22 or newer.
 - `-audit` runs in ~13 s on a stock CI runner; the default `go test ./...` suite is ~1 s (integration and benchmark suites are behind build tags).
-- Verify by tag: `go install github.com/canakcinar/sift@v0.1.0` and run `sift -version`.
+- Verify by tag: `go install github.com/canakcinar/lucid@v0.1.0` and run `lucid -version`.
 
-[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.5...HEAD
-[v0.1.5]: https://github.com/canakcinar/sift/releases/tag/v0.1.5
-[v0.1.4]: https://github.com/canakcinar/sift/releases/tag/v0.1.4
-[v0.1.3]: https://github.com/canakcinar/sift/releases/tag/v0.1.3
-[v0.1.2]: https://github.com/canakcinar/sift/releases/tag/v0.1.2
-[v0.1.1]: https://github.com/canakcinar/sift/releases/tag/v0.1.1
-[v0.1.0]: https://github.com/canakcinar/sift/releases/tag/v0.1.0
+[Unreleased]: https://github.com/canakcinar/lucid/compare/v0.1.5...HEAD
+[v0.1.5]: https://github.com/canakcinar/lucid/releases/tag/v0.1.5
+[v0.1.4]: https://github.com/canakcinar/lucid/releases/tag/v0.1.4
+[v0.1.3]: https://github.com/canakcinar/lucid/releases/tag/v0.1.3
+[v0.1.2]: https://github.com/canakcinar/lucid/releases/tag/v0.1.2
+[v0.1.1]: https://github.com/canakcinar/lucid/releases/tag/v0.1.1
+[v0.1.0]: https://github.com/canakcinar/lucid/releases/tag/v0.1.0

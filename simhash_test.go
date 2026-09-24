@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// The property that makes sift work: two soft-404 pages that differ only in a variable-length
+// The property that makes lucid work: two soft-404 pages that differ only in a variable-length
 // filler (ads, nonce, reflected path) stay CLOSE, while a real page is FAR — something an
 // exact-length or size filter cannot see.
 func TestSimHashSeparatesSoft404FromReal(t *testing.T) {

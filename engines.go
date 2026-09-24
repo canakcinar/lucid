@@ -27,11 +27,11 @@ import (
 //  1. Adversarial hosts. A target that answers every request with a 30s slow-loris — legally
 //     within HTTP — turns a 4750-word brute into a 40-hour scan. Wait-forever means the scan
 //     literally never returns; the operator has no signal until they Ctrl-C, and any batch
-//     wrapper (sift-across-N-subdomains) blocks the slot forever.
+//     wrapper (lucid-across-N-subdomains) blocks the slot forever.
 //  2. Engine bugs. feroxbuster has hung on specific 429 patterns; katana has deadlocked on
 //     malformed JS handlers; nomore403 has blocked on its own payload channel. Without a
 //     deadline, cmd.Wait() never returns, killGroup never runs, deferred temp-file removal
-//     never runs, and $TMPDIR fills with sift-*.jsonl scratch until the disk is full.
+//     never runs, and $TMPDIR fills with lucid-*.jsonl scratch until the disk is full.
 //  3. Batch throughput. With 4 workers × 24 targets, one hostile target holding one slot for
 //     6 hours costs 25% of throughput. `coverage: PARTIAL + next target` is dramatically
 //     better user experience than "one scan hangs and drags the whole batch".
@@ -228,7 +228,7 @@ func findNomorePayloadsDir(cands []string) string {
 	return ""
 }
 
-// sift orchestrates mature discovery/bypass tools when they're installed and cleans their union
+// lucid orchestrates mature discovery/bypass tools when they're installed and cleans their union
 // with its own SimHash core. Every wrapper degrades gracefully (missing binary -> nil) and every
 // external process is bounded so it can't hang the run.
 
@@ -336,7 +336,7 @@ func runLines(cmd *exec.Cmd) ([]string, error) {
 }
 
 // feroxbuster: brute engine with three aggressiveness profiles (Config.Mode). --json gives
-// url+status per hit, so sift can skip re-fetching a uniform 403/401 wall.
+// url+status per hit, so lucid can skip re-fetching a uniform 403/401 wall.
 //
 //	fast     : -n (no recursion), no -x extensions.       Cheapest.
 //	standard : -n (no recursion),    -x extensions.       Default. (v0.1.4 shape.)
@@ -353,7 +353,7 @@ func runFerox(targetURL, wordlist string, cfg *Config) map[string]int {
 	if wordlist == "" || !haveBin("feroxbuster") {
 		return nil
 	}
-	tmp, err := createTracked("", "sift-ferox-*.jsonl")
+	tmp, err := createTracked("", "lucid-ferox-*.jsonl")
 	if err != nil {
 		return nil
 	}
@@ -375,7 +375,7 @@ func runFerox(targetURL, wordlist string, cfg *Config) map[string]int {
 	if cfg.Mode != "fast" && len(cfg.Exts) > 0 {
 		a = append(a, "-x", strings.Join(trimDots(cfg.Exts), ","))
 	}
-	if cfg.Rate > 0 { // throttle the loud brute engine too, not just sift's own fetches
+	if cfg.Rate > 0 { // throttle the loud brute engine too, not just lucid's own fetches
 		a = append(a, "--rate-limit", strconv.Itoa(cfg.Rate))
 	}
 	if cfg.Proxy != "" {
@@ -414,7 +414,7 @@ func runFfuf(targetURL, wordlist string, cfg *Config) map[string]int {
 	if wordlist == "" || !haveBin("ffuf") {
 		return nil
 	}
-	tmp, err := createTracked("", "sift-ffuf-*.json")
+	tmp, err := createTracked("", "lucid-ffuf-*.json")
 	if err != nil {
 		return nil
 	}
@@ -485,7 +485,7 @@ func runKatana(targetURL string, cfg *Config) []string {
 }
 
 // katanaBudget derives the katana deadline from its measured wall-clock, not from a guess.
-// Round-8 calibration on the two round-7 hosts (raw katana, no sift, -d 3 -rl 30):
+// Round-8 calibration on the two round-7 hosts (raw katana, no lucid, -d 3 -rl 30):
 //
 //	www.cyberwhiz.co.uk       1404 URLs in 12.6s   (rich content, JS-heavy)
 //	otatool.arcelikiot.com      32 URLs in 13.7s   (bare API + Okta redirect)
@@ -577,7 +577,7 @@ func runNomore403(rawurl string, cfg *Config) (*NomoreHit, bool) {
 	if !cfg.Bypass || !haveBin("nomore403") {
 		return nil, false
 	}
-	tmp, err := createTracked("", "sift-nm-*.json")
+	tmp, err := createTracked("", "lucid-nm-*.json")
 	if err != nil {
 		return nil, false
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 // A hostile target can publish `Sitemap: https://evil/log` in its robots.txt; without a scope
-// guard, sift fetches that URL with the operator's -b cookie and -H auth headers still attached.
+// guard, lucid fetches that URL with the operator's -b cookie and -H auth headers still attached.
 // This test stands up a target server whose robots.txt points sitemap at a second server on a
 // different host and asserts the second server never receives a request from passivePaths.
 func TestPassivePaths_OffScopeSitemapRefNotFetched(t *testing.T) {
@@ -37,7 +37,7 @@ func TestPassivePaths_OffScopeSitemapRefNotFetched(t *testing.T) {
 	defer target.Close()
 
 	u, _ := url.Parse(target.URL + "/")
-	cfg := &Config{Timeout: 2, UA: "sift-test", Headers: map[string]string{"Cookie": "session=secret"}}
+	cfg := &Config{Timeout: 2, UA: "lucid-test", Headers: map[string]string{"Cookie": "session=secret"}}
 	_ = passivePaths(mustNewClient(t, cfg), u, cfg)
 
 	if n := atomic.LoadInt64(&evilHits); n != 0 {
@@ -55,8 +55,8 @@ func TestFetchSitemap_RefusesCrossHost(t *testing.T) {
 	}))
 	defer evil.Close()
 
-	target, _ := url.Parse("http://sift-target.invalid/")
-	cfg := &Config{Timeout: 2, UA: "sift-test"}
+	target, _ := url.Parse("http://lucid-target.invalid/")
+	cfg := &Config{Timeout: 2, UA: "lucid-test"}
 	if got := fetchSitemap(mustNewClient(t, cfg), target, evil.URL+"/sitemap.xml", cfg); got != nil {
 		t.Fatalf("fetchSitemap returned %v for a cross-host URL", got)
 	}
@@ -80,7 +80,7 @@ func TestOpenAPIPaths_SwaggerV2BasePath(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Timeout: 2, UA: "sift-test", MaxCandidates: 20000}
+	cfg := &Config{Timeout: 2, UA: "lucid-test", MaxCandidates: 20000}
 	out := openapiPaths(mustNewClient(t, cfg), u, cfg)
 
 	want := map[string]bool{
@@ -122,7 +122,7 @@ func TestOpenAPIPaths_OpenAPIV3ServersSameHost(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Timeout: 2, UA: "sift-test", MaxCandidates: 20000}
+	cfg := &Config{Timeout: 2, UA: "lucid-test", MaxCandidates: 20000}
 	out := openapiPaths(mustNewClient(t, cfg), u, cfg)
 
 	wantHealth := srv.URL + "/v3/health"
@@ -167,7 +167,7 @@ func TestOpenAPIPaths_RespectsMaxCandidates(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Timeout: 2, UA: "sift-test", MaxCandidates: 10}
+	cfg := &Config{Timeout: 2, UA: "lucid-test", MaxCandidates: 10}
 	out := openapiPaths(mustNewClient(t, cfg), u, cfg)
 	if len(out) > 10 {
 		t.Fatalf("openapiPaths returned %d results, cap was 10", len(out))
@@ -184,7 +184,7 @@ func TestOpenAPIPaths_IgnoresNonJSON(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Timeout: 2, UA: "sift-test", MaxCandidates: 20000}
+	cfg := &Config{Timeout: 2, UA: "lucid-test", MaxCandidates: 20000}
 	if out := openapiPaths(mustNewClient(t, cfg), u, cfg); len(out) != 0 {
 		t.Fatalf("expected empty output on text/html, got %v", out)
 	}
@@ -210,7 +210,7 @@ func TestPassivePaths_SameHostSitemapStillFetched(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Timeout: 2, UA: "sift-test"}
+	cfg := &Config{Timeout: 2, UA: "lucid-test"}
 	out := passivePaths(mustNewClient(t, cfg), u, cfg)
 
 	if atomic.LoadInt64(&sitemapHits) == 0 {

@@ -17,7 +17,7 @@ func sortStrings(s []string) { sort.Strings(s) }
 // lazily inside the scanner (harCap in scanner.go); this file only defines the wire schema
 // and the serializer, so a scan that doesn't set -har allocates nothing here.
 //
-// Security: Cookie and Authorization headers are redacted to "[REDACTED by sift]" before
+// Security: Cookie and Authorization headers are redacted to "[REDACTED by lucid]" before
 // serialization — a HAR file is often shared, and leaking the operator's session cookie
 // through a bug-bounty attachment is the exact class of accident this tool must not create.
 
@@ -41,7 +41,7 @@ type harCapture struct {
 	// single delimited value — otherwise the importer sees "one cookie" with the delimiter
 	// baked in and every subsequent replay ships the wrong session.
 	SetCookies []string
-	// RedirectURL is the Location header on a 3xx response. sift records but never follows
+	// RedirectURL is the Location header on a 3xx response. lucid records but never follows
 	// redirects (scope guard); surfacing it in the HAR entry lets Burp/ZAP show the chain
 	// so an analyst can see "/admin -> /login" without opening the raw body.
 	RedirectURL string
@@ -143,7 +143,7 @@ func redactedHeaders(in map[string]string) []harNVP {
 		lk := strings.ToLower(k)
 		if lk == "cookie" || lk == "authorization" || lk == "proxy-authorization" ||
 			strings.HasPrefix(lk, "x-auth-") || strings.HasPrefix(lk, "x-api-key") {
-			v = "[REDACTED by sift]"
+			v = "[REDACTED by lucid]"
 		}
 		out = append(out, harNVP{Name: k, Value: v})
 	}
@@ -158,7 +158,7 @@ func buildHAR(caps []harCapture) harDocument {
 	doc := harDocument{
 		Log: harLog{
 			Version: "1.2",
-			Creator: harCreator{Name: "sift", Version: version},
+			Creator: harCreator{Name: "lucid", Version: version},
 			Entries: make([]harEntry, 0, len(caps)),
 		},
 	}
@@ -230,7 +230,7 @@ func mergeRespHeaders(named map[string]string, cookies []string) []harNVP {
 	return out
 }
 
-// namedHeaders converts sift's Resp.Headers map into the HAR name/value array. Order is
+// namedHeaders converts lucid's Resp.Headers map into the HAR name/value array. Order is
 // stable (map iteration order isn't guaranteed) so a diff between two runs stays diff-able.
 func namedHeaders(in map[string]string) []harNVP {
 	if len(in) == 0 {

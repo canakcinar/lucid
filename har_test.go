@@ -15,7 +15,7 @@ func TestBuildHAR_RedactsAuthHeaders(t *testing.T) {
 		URL:    "https://target.tld/admin",
 		Method: "GET",
 		ReqHeaders: map[string]string{
-			"User-Agent":    "sift/0",
+			"User-Agent":    "lucid/0",
 			"Cookie":        "session=SECRET123",
 			"Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.SECRET.SECRET",
 			"X-Api-Key":     "SECRET_KEY",
@@ -40,7 +40,7 @@ func TestBuildHAR_RedactsAuthHeaders(t *testing.T) {
 			t.Errorf("%s not redacted: %q", k, v)
 		}
 	}
-	if headerMap["user-agent"] != "sift/0" {
+	if headerMap["user-agent"] != "lucid/0" {
 		t.Errorf("non-secret header User-Agent must survive: %q", headerMap["user-agent"])
 	}
 }
@@ -65,7 +65,7 @@ func TestBuildHAR_BodyCapAndFlag(t *testing.T) {
 }
 
 // TestWriteHAR_Roundtrip — the file we write must reparse as valid JSON and preserve
-// every entry; a CI script piping sift -har into Burp needs a syntactically clean file.
+// every entry; a CI script piping lucid -har into Burp needs a syntactically clean file.
 func TestWriteHAR_Roundtrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "out.har")

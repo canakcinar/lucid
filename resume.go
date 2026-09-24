@@ -11,13 +11,13 @@ package main
 //
 // This file adds three on-disk pieces so -resume/-checkpoint actually pick up mid-scan:
 //
-//   1. sift.ckpt.jsonl               — one Finding per line, appended under Scanner.mu
+//   1. lucid.ckpt.jsonl               — one Finding per line, appended under Scanner.mu
 //                                      inside record(); a crash preserves everything
 //                                      recorded so far. Loaded into skip{} on next run.
-//   2. sift.ckpt.jsonl.candidates.json — the candidate union produced by the discovery
+//   2. lucid.ckpt.jsonl.candidates.json — the candidate union produced by the discovery
 //                                      engines. Reused (subject to -resume-ttl) so the
 //                                      loud engines don't have to re-run.
-//   3. sift.ckpt.jsonl.profiles.json — per-directory calibration Profiles. Reused so
+//   3. lucid.ckpt.jsonl.profiles.json — per-directory calibration Profiles. Reused so
 //                                      soft-404 probes don't hit the target again.
 //
 // The three files together form the two-file contract the user request calls for:
@@ -110,7 +110,7 @@ func loadCheckpoint(path string) ([]Finding, map[string]bool, error) {
 }
 
 // candidateCache is the on-disk shape of <checkpoint>.candidates.json — the discovery-phase
-// output pinned to a target and a wall-clock timestamp. Target-scoping means pointing sift
+// output pinned to a target and a wall-clock timestamp. Target-scoping means pointing lucid
 // at a different host with the same -checkpoint doesn't silently reuse the wrong union.
 type candidateCache struct {
 	Target string          `json:"target"`

@@ -268,7 +268,7 @@ func TestRedactedHeaders_KeepsAllNames_CaseInsensitive(t *testing.T) {
 	in := map[string]string{
 		"cookie":        "session=abc",
 		"AUTHORIZATION": "Bearer xyz",
-		"User-Agent":    "sift/0",
+		"User-Agent":    "lucid/0",
 	}
 	got := redactedHeaders(in)
 	names := map[string]string{}
@@ -281,7 +281,7 @@ func TestRedactedHeaders_KeepsAllNames_CaseInsensitive(t *testing.T) {
 	if !strings.Contains(names["authorization"], "REDACTED") {
 		t.Errorf("Authorization (upper) not redacted: %v", names["authorization"])
 	}
-	if names["user-agent"] != "sift/0" {
+	if names["user-agent"] != "lucid/0" {
 		t.Errorf("non-secret preserved verbatim: %v", names["user-agent"])
 	}
 }
@@ -336,7 +336,7 @@ func TestNewClient_ForceHTTP2Set(t *testing.T) {
 
 // --- WebSocket / SSE detection ---
 
-// TestWsPathHint_KnownConventions — sift promotes a plain-GET failure (400/426) to a WS
+// TestWsPathHint_KnownConventions — lucid promotes a plain-GET failure (400/426) to a WS
 // probe ONLY when the path names a realtime endpoint. Regressing this pattern means every
 // broken endpoint on any host burns an extra WS-Upgrade fetch. Convention list matches
 // wsHintRe verbatim: ws, socket, socket.io, stream, events (case-insensitive).
@@ -404,7 +404,7 @@ func TestWsProbe_Returns101OnUpgrade(t *testing.T) {
 	}()
 
 	target, _ := url.Parse("http://" + ln.Addr().String() + "/")
-	cfg := &Config{Timeout: 3, UA: "sift-test"}
+	cfg := &Config{Timeout: 3, UA: "lucid-test"}
 	code, err := wsProbe(target, "http://"+ln.Addr().String()+"/ws", cfg)
 	if err != nil {
 		t.Fatalf("wsProbe returned err on a valid 101: %v", err)
@@ -424,7 +424,7 @@ func TestWsProbe_NonUpgradeStaysNon101(t *testing.T) {
 	}))
 	defer srv.Close()
 	target, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Timeout: 3, UA: "sift-test"}
+	cfg := &Config{Timeout: 3, UA: "lucid-test"}
 	code, err := wsProbe(target, srv.URL+"/ws", cfg)
 	if err != nil {
 		t.Fatalf("wsProbe returned err on plain 200: %v", err)
@@ -460,7 +460,7 @@ func TestFetchWith_ExtraHeadersOverrideCfg(t *testing.T) {
 	defer srv.Close()
 
 	cfg := &Config{
-		Timeout: 3, UA: "sift-test", Insecure: true,
+		Timeout: 3, UA: "lucid-test", Insecure: true,
 		Headers: map[string]string{"X-Auth": "cfg-value", "Cookie": "session=abc"},
 	}
 	client := mustNewClient(t, cfg)
@@ -489,7 +489,7 @@ func TestFetchWith_ExtraHeadersOverrideCfg(t *testing.T) {
 	if got := h.Get("Cookie"); got != "session=abc" {
 		t.Errorf("cfg.Header without collision must survive: got %q", got)
 	}
-	if got := h.Get("User-Agent"); got != "sift-test" {
+	if got := h.Get("User-Agent"); got != "lucid-test" {
 		t.Errorf("UA from cfg lost: got %q", got)
 	}
 }
@@ -510,7 +510,7 @@ func TestFetchWith_BudgetExhausted(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	cfg := &Config{Timeout: 3, UA: "sift-test", Insecure: true, MaxReq: 1}
+	cfg := &Config{Timeout: 3, UA: "lucid-test", Insecure: true, MaxReq: 1}
 	client := mustNewClient(t, cfg)
 	target, _ := url.Parse(srv.URL + "/")
 
@@ -539,7 +539,7 @@ func TestFetchWith_HARHeadersOnBypassReplay(t *testing.T) {
 		w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
-	cfg := &Config{Timeout: 3, UA: "sift-test", HAROutput: "on"}
+	cfg := &Config{Timeout: 3, UA: "lucid-test", HAROutput: "on"}
 	client := mustNewClient(t, cfg)
 	target, _ := url.Parse(srv.URL + "/")
 	r := fetchWith(client, target, srv.URL+"/x", cfg, map[string]string{"X-Forwarded-For": "127.0.0.1"})

@@ -149,13 +149,13 @@ type Config struct {
 	Collapse      int
 	HAROutput     string // -har: write a HAR 1.2 export of every Finding's request/response
 
-	// --- runtime state below. Do NOT read/write these from outside sift; use ResetRuntime()
+	// --- runtime state below. Do NOT read/write these from outside lucid; use ResetRuntime()
 	// to clear them before reusing a Config for another scan. Keeping them on Config (rather
 	// than a separate Runtime struct) keeps the surface small; ResetRuntime() is the seam.
 	reqCount int64
 	Throttle *Throttle
 	// Truncated is set when any external engine hit -engine-timeout. Per-Config (not global)
-	// so a second scan in the same process starts clean — critical when sift is used as a
+	// so a second scan in the same process starts clean — critical when lucid is used as a
 	// library or when -audit runs before a real scan.
 	Truncated atomic.Bool
 	// PartialReason records WHICH engine truncated when Truncated flips true. Written by
@@ -226,11 +226,11 @@ type Finding struct {
 	Title     string `json:"title,omitempty"`
 	Dist      int    `json:"dist,omitempty"` // SimHash distance from not-found (confidence)
 	Bypass    string `json:"bypass,omitempty"`
-	// BypassPreview is populated only when Bypass is "verified:*" — sift replayed the winning
+	// BypassPreview is populated only when Bypass is "verified:*" — lucid replayed the winning
 	// nomore403 request in-process, confirmed the response left the not-found envelope, and
 	// captured a short snapshot (title + first ~200 chars, HTML-escaped) so the operator can
 	// tell a real bypass from a login page or WAF happy-path without hand-replaying. Empty
-	// for "unverified:*" hits (verb-tunneling and other techniques sift can't safely rebuild).
+	// for "unverified:*" hits (verb-tunneling and other techniques lucid can't safely rebuild).
 	BypassPreview string `json:"bypass_preview,omitempty"`
 	Review    bool     `json:"review,omitempty"`
 	Collapsed int      `json:"collapsed,omitempty"` // this row stands in for N same-response paths
@@ -280,7 +280,7 @@ func loadBaseline(path string) (map[string]Finding, error) {
 		}
 		return m, nil
 	}
-	return m, fmt.Errorf("baseline %s: not valid sift JSON (expected {\"findings\":[...]} or [Finding,...])", path)
+	return m, fmt.Errorf("baseline %s: not valid lucid JSON (expected {\"findings\":[...]} or [Finding,...])", path)
 }
 
 // diffAgainstBaseline compares a live finding to its baseline entry (if any) and returns
@@ -393,7 +393,7 @@ func main() {
 	// Wire SIGINT/SIGTERM into rootCtx so a Ctrl-C (interactive) or systemd/nohup
 	// SIGTERM (non-interactive) tears down every engine's context, kills their
 	// process groups, and drains the temp-file registry — without this every
-	// interrupted scan leaks sift-ferox-*.jsonl / sift-ffuf-*.json / sift-nm-*.json
+	// interrupted scan leaks lucid-ferox-*.jsonl / lucid-ffuf-*.json / lucid-nm-*.json
 	// into $TMPDIR and can orphan feroxbuster/katana/gau/nomore403 processes.
 	defer installSignalHandler()()
 
@@ -409,12 +409,12 @@ func main() {
 	flag.StringVar(&cfg.Mode, "mode", "standard",
 		"ferox aggressiveness: fast (no ext, no recursion) | standard (ext, no recursion) | deep (ext, recursion)")
 	auditMode := flag.Bool("audit", false, "run integration audit (stands up a local mock, exercises every engine) and exit")
-	versionFlag := flag.Bool("version", false, "print the sift version and exit")
+	versionFlag := flag.Bool("version", false, "print the lucid version and exit")
 	flag.BoolVar(&cfg.Archive, "archive", true, "pull historical paths via gau if installed")
 	flag.IntVar(&cfg.Delay, "delay", 0, "base delay per request (ms); auto-backoff on 429/503")
 	flag.IntVar(&cfg.ReviewMargin, "review", 2, "review-band width just inside threshold (0 = off)")
-	flag.IntVar(&cfg.MaxReq, "budget", 0, "max total sift cleanup requests (0 = unlimited)")
-	flag.IntVar(&cfg.Rate, "rate", 0, "req/s cap passed to engines + sift (0 = unlimited)")
+	flag.IntVar(&cfg.MaxReq, "budget", 0, "max total lucid cleanup requests (0 = unlimited)")
+	flag.IntVar(&cfg.Rate, "rate", 0, "req/s cap passed to engines + lucid (0 = unlimited)")
 	flag.IntVar(&cfg.EngineTimeout, "engine-timeout", 300, "per-engine hard timeout (seconds)")
 	flag.IntVar(&cfg.MaxCandidates, "max-candidates", 20000, "cap on candidate URLs to clean (0 = unlimited)")
 	flag.BoolVar(&cfg.Assets, "assets", true, "include static assets (js/css/img/pdf…) in findings")
@@ -445,7 +445,7 @@ func main() {
 	// opts in with -force-empty-pass (Basic with an empty password is legitimate on some appliances).
 	basic := flag.String("u", "", "HTTP Basic auth 'user:pass' (populates Authorization header)")
 	forceEmptyPass := flag.Bool("force-empty-pass", false, "allow -u with an empty password")
-	ua := flag.String("ua", "Mozilla/5.0 (compatible; sift/"+version+")", "user agent")
+	ua := flag.String("ua", "Mozilla/5.0 (compatible; lucid/"+version+")", "user agent")
 	var hdr headerFlags
 	flag.Var(&hdr, "H", "extra request header 'K: V' (repeatable)")
 	flag.Parse()
@@ -464,14 +464,14 @@ func main() {
 	switch cfg.Mode {
 	case "fast", "standard", "deep":
 	default:
-		fmt.Fprintf(os.Stderr, "sift: -mode must be fast | standard | deep, got %q\n", cfg.Mode)
+		fmt.Fprintf(os.Stderr, "lucid: -mode must be fast | standard | deep, got %q\n", cfg.Mode)
 		os.Exit(2)
 	}
 	// -version prints and exits BEFORE -audit and the URL requirement so a packaging script
-	// (`sift -version` in a Dockerfile / brew formula) doesn't need to hand the binary a URL
+	// (`lucid -version` in a Dockerfile / brew formula) doesn't need to hand the binary a URL
 	// just to learn what version it shipped.
 	if *versionFlag {
-		fmt.Println("sift", version)
+		fmt.Println("lucid", version)
 		os.Exit(0)
 	}
 	// -audit runs the integration self-check and exits — no URL needed. This is the answer to
@@ -521,15 +521,15 @@ func main() {
 		}
 	}
 	if len(positional) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: sift [flags] <url>")
+		fmt.Fprintln(os.Stderr, "usage: lucid [flags] <url>")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
-	// Silent-discard of extra positionals used to hide typos like `sift -w list.txt https://a https://b`
-	// where the user thought both URLs would be scanned. Fail loudly instead — sift scans one URL per run.
+	// Silent-discard of extra positionals used to hide typos like `lucid -w list.txt https://a https://b`
+	// where the user thought both URLs would be scanned. Fail loudly instead — lucid scans one URL per run.
 	if len(positional) > 1 {
-		fmt.Fprintf(os.Stderr, "sift scans one target per run; extra positional arguments: %v\n", positional[1:])
-		fmt.Fprintln(os.Stderr, "if you meant to scan them all, run sift once per target (or wrap in a shell loop)")
+		fmt.Fprintf(os.Stderr, "lucid scans one target per run; extra positional arguments: %v\n", positional[1:])
+		fmt.Fprintln(os.Stderr, "if you meant to scan them all, run lucid once per target (or wrap in a shell loop)")
 		os.Exit(1)
 	}
 	raw := positional[0]

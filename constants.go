@@ -1,11 +1,11 @@
 package main
 
-// Central tuning knobs for sift. Every magic number that a maintainer might want to change
+// Central tuning knobs for lucid. Every magic number that a maintainer might want to change
 // lives here so a code reader doesn't have to hunt across files. Constants stay next to
 // their unit (bytes / seconds / probability / count) so a wrong-order edit fails to compile.
 //
 // Values that a USER should be able to change are exposed as -flags in main.go and shadowed
-// on Config; the constants below are the SITE-invariant defaults sift ships with — changing
+// on Config; the constants below are the SITE-invariant defaults lucid ships with — changing
 // them changes the tool's behavior, not one operator's run.
 //
 // If a constant is genuinely local to one function (e.g. a 200-byte body preview inside a

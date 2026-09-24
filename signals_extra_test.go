@@ -84,7 +84,7 @@ func TestRunFfuf_MissingBinaryWithWordlistReturnsNil(t *testing.T) {
 	if haveBin("ffuf") {
 		t.Skip("ffuf is installed on this host; TestRunFfuf_MissingBinaryReturnsNil covers only the negative path")
 	}
-	f, err := os.CreateTemp("", "sift-wl-*.txt")
+	f, err := os.CreateTemp("", "lucid-wl-*.txt")
 	if err != nil {
 		t.Fatal(err)
 	}

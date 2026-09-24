@@ -29,7 +29,7 @@ func TestVerify_FetchError_CountsAndReturnsNoFinding(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 	s := NewScanner(cfg, client, u, nil)
 
@@ -69,7 +69,7 @@ func TestVerify_OffScope_NotCountedAsError(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 	s := NewScanner(cfg, client, u, nil)
 	p := Profile{Statuses: map[int]bool{200: true}, Titles: map[string]bool{"": true}, TitleStable: true}
@@ -102,7 +102,7 @@ func TestCleanDir_AllFetchErrors_FlipsTruncated(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test", Concurrency: 2}
+	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test", Concurrency: 2}
 	client := mustNewClient(t, cfg)
 	s := NewScanner(cfg, client, u, nil)
 
@@ -136,7 +136,7 @@ func TestCleanDir_HealthyDir_DoesNotFlipTruncated(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test", Concurrency: 2}
+	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test", Concurrency: 2}
 	client := mustNewClient(t, cfg)
 	s := NewScanner(cfg, client, u, nil)
 
@@ -170,7 +170,7 @@ func TestNewScanner_ClampsNonPositiveConcurrency(t *testing.T) {
 	u, _ := url.Parse(srv.URL + "/")
 	for _, c := range []int{0, -1, -100} {
 		cfg := &Config{Probes: 0, Threshold: -1, ReviewMargin: 2, Timeout: 2,
-			UA: "sift-test", Concurrency: c}
+			UA: "lucid-test", Concurrency: c}
 		client := mustNewClient(t, cfg)
 		s := NewScanner(cfg, client, u, nil)
 		if cfg.Concurrency < 1 {
@@ -227,7 +227,7 @@ func TestScanner_ShellDetection_ThroughRootRedirect(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 	s := NewScanner(cfg, client, u, nil)
 
@@ -277,7 +277,7 @@ func TestFollowShellHop_OffScopeRedirectNotFollowed(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 
 	raw := fetch(client, u, u.String(), cfg)
@@ -304,7 +304,7 @@ func TestCleanDir_WallShortcut_RespectsSkip(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test", Concurrency: 2}
+	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test", Concurrency: 2}
 	client := mustNewClient(t, cfg)
 
 	// Seed skip{} with one URL — a resume boundary carrying it over from the previous run.
@@ -365,7 +365,7 @@ func TestVerify_SSE_TaggedKindSSE(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 	s := NewScanner(cfg, client, u, nil)
 
@@ -415,7 +415,7 @@ func TestVerify_WS_TaggedKindWS(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Probes: 1, Threshold: -1, ReviewMargin: 2, Timeout: 2, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 	s := NewScanner(cfg, client, u, nil)
 

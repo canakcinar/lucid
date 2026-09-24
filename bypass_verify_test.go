@@ -25,7 +25,7 @@ func TestVerifyBypass_HeadersConfirmed(t *testing.T) {
 	defer srv.Close()
 
 	target, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Timeout: 5, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Timeout: 5, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 
 	// Profile that fingerprints the 403 wall — a differing 200 with a distinct SimHash
@@ -61,7 +61,7 @@ func TestVerifyBypass_HeadersReplayStillWall(t *testing.T) {
 	defer srv.Close()
 
 	target, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Timeout: 5, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Timeout: 5, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 
 	wall := fetch(client, target, srv.URL+"/secret", cfg)
@@ -92,7 +92,7 @@ func TestVerifyBypass_HeadersReplayInNotFoundEnvelope(t *testing.T) {
 	defer srv.Close()
 
 	target, _ := url.Parse(srv.URL + "/")
-	cfg := &Config{Timeout: 5, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Timeout: 5, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 
 	baseline := fetch(client, target, srv.URL+"/secret", cfg)
@@ -110,12 +110,12 @@ func TestVerifyBypass_HeadersReplayInNotFoundEnvelope(t *testing.T) {
 
 // TestVerifyBypass_NonHeaderTechniqueUnverified — verb tunneling and endpaths payloads
 // aren't safely rebuildable from a plain GET; the finding says "keep unverified for
-// techniques sift can't replay". Confirm the code paths for verbs, endpaths and
+// techniques lucid can't replay". Confirm the code paths for verbs, endpaths and
 // path-case all bypass the network call and label the hit unverified.
 func TestVerifyBypass_NonHeaderTechniqueUnverified(t *testing.T) {
 	// Deliberately point at a URL that would panic dial if the code tried to reach it —
 	// non-header techniques must NOT trigger a fetch.
-	cfg := &Config{Timeout: 5, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Timeout: 5, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 	target, _ := url.Parse("http://127.0.0.1:1/")
 	p := Profile{Statuses: map[int]bool{403: true}, Sims: []uint64{0xDEAD}, Threshold: 4}
@@ -135,7 +135,7 @@ func TestVerifyBypass_NonHeaderTechniqueUnverified(t *testing.T) {
 // TestVerifyBypass_MalformedHeaderPayload — a payload with no colon or an empty header
 // name can't be rebuilt as a header; treat as unverified rather than send a broken request.
 func TestVerifyBypass_MalformedHeaderPayload(t *testing.T) {
-	cfg := &Config{Timeout: 5, UA: "sift-test", Concurrency: 1}
+	cfg := &Config{Timeout: 5, UA: "lucid-test", Concurrency: 1}
 	client := mustNewClient(t, cfg)
 	target, _ := url.Parse("http://127.0.0.1:1/")
 	p := Profile{Statuses: map[int]bool{403: true}, Sims: []uint64{0xDEAD}, Threshold: 4}

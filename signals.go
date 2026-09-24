@@ -15,7 +15,7 @@ import (
 // Why this exists: Go's default SIGINT behaviour terminates the process without
 // running deferred cleanup, so every `defer os.Remove(tmp.Name())` in the engine
 // wrappers is skipped and $TMPDIR fills with orphaned scratch files. Worse, in a
-// non-interactive run (systemd / nohup / cron / a wrapper that puts sift in its
+// non-interactive run (systemd / nohup / cron / a wrapper that puts lucid in its
 // own pgid) the child engines (feroxbuster, katana, gau, nomore403) are not
 // killed by the terminal's process-group SIGINT — they become orphaned. With a
 // signal-aware root context, `exec.CommandContext`'s cancel path fires and the

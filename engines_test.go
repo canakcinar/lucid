@@ -230,7 +230,7 @@ func TestFindNomorePayloadsDir_EmptyOnMiss(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := findNomorePayloadsDir([]string{empty, partial, "/nonexistent/path/for/sift/test"}); got != "" {
+	if got := findNomorePayloadsDir([]string{empty, partial, "/nonexistent/path/for/lucid/test"}); got != "" {
 		t.Fatalf("wanted empty string on miss, got %q", got)
 	}
 }

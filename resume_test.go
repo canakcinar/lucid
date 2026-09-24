@@ -71,9 +71,9 @@ func TestLoadCheckpoint_MembersUnionIntoSkip(t *testing.T) {
 // subsequent loadCheckpoint must recover those findings byte-for-byte in order.
 func TestRecord_AppendsToCheckpoint(t *testing.T) {
 	dir := t.TempDir()
-	ckpt := filepath.Join(dir, "sift.ckpt.jsonl")
+	ckpt := filepath.Join(dir, "lucid.ckpt.jsonl")
 	cfg := &Config{
-		Concurrency: 1, Timeout: 2, UA: "sift-test", Probes: 1, Threshold: -1,
+		Concurrency: 1, Timeout: 2, UA: "lucid-test", Probes: 1, Threshold: -1,
 		CheckpointPath: ckpt,
 	}
 	client := mustNewClient(t, cfg)
@@ -233,7 +233,7 @@ func TestScanner_Run_ReusesCandidateCache_SkipsDiscovery(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	ckpt := filepath.Join(dir, "sift.ckpt.jsonl")
+	ckpt := filepath.Join(dir, "lucid.ckpt.jsonl")
 	// Pre-seed the candidate cache so Run() takes the cache short-circuit.
 	if err := saveCandidates(candidatesPath(ckpt), srv.URL+"/", map[string]cand{
 		srv.URL + "/seeded": {url: srv.URL + "/seeded", source: "cached-test", status: 0},
@@ -246,7 +246,7 @@ func TestScanner_Run_ReusesCandidateCache_SkipsDiscovery(t *testing.T) {
 	}
 
 	cfg := &Config{
-		Concurrency: 1, Timeout: 5, UA: "sift-test", Probes: 2, Threshold: -1,
+		Concurrency: 1, Timeout: 5, UA: "lucid-test", Probes: 2, Threshold: -1,
 		ReviewMargin: 2, Assets: true, Bypass: false, Archive: false,
 		CheckpointPath: ckpt, ResumeTTL: 3600,
 		Throttle: NewThrottle(0),

@@ -59,7 +59,7 @@ func TestRace_HighFanoutScan(t *testing.T) {
 	defer srv.Close()
 
 	// Big-ish wordlist to force real concurrency inside cleanDir.
-	tmp, err := os.CreateTemp(t.TempDir(), "sift-race-*.txt")
+	tmp, err := os.CreateTemp(t.TempDir(), "lucid-race-*.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestRace_HighFanoutScan(t *testing.T) {
 
 	// Checkpoint on so the ckptFile write path is exercised concurrently.
 	ckptDir := t.TempDir()
-	ckpt := filepath.Join(ckptDir, "sift-race.ckpt.jsonl")
+	ckpt := filepath.Join(ckptDir, "lucid-race.ckpt.jsonl")
 
 	// -har on so harScope.add is exercised concurrently under s.har.mu.
 	harPath := filepath.Join(ckptDir, "race.har")
@@ -100,7 +100,7 @@ func TestRace_HighFanoutScan(t *testing.T) {
 		Collapse:       5,
 		EngineTimeout:  30,
 		MaxCandidates:  10000,
-		UA:             "sift-race/0",
+		UA:             "lucid-race/0",
 		Headers:        map[string]string{"Cookie": "session=abc"},
 	}
 	// Force the built-in Runtime state (not from ResetRuntime, since library callers may build

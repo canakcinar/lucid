@@ -15,7 +15,7 @@ import (
 // via t.Cleanup. Kept for the mode-aware suite below where every case needs a wordlist.
 func makeWordlist(t *testing.T, n int) string {
 	t.Helper()
-	f, err := os.CreateTemp("", "sift-wl-*.txt")
+	f, err := os.CreateTemp("", "lucid-wl-*.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestFeroxBudget_ModeOrdering(t *testing.T) {
 // when engineTimeoutSetByUser is true, so an operator can dial in an exotic slow-VPN case
 // without a code change.
 func TestFeroxBudget_HonorsUserOverride(t *testing.T) {
-	f, _ := os.CreateTemp("", "sift-wl-*.txt")
+	f, _ := os.CreateTemp("", "lucid-wl-*.txt")
 	defer os.Remove(f.Name())
 	f.WriteString("a\nb\nc\n")
 	f.Close()
