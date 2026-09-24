@@ -70,29 +70,34 @@ func TestFeroxBudget_DeepMode(t *testing.T) {
 	}
 }
 
-// TestKatanaBudget_ScalesWithDepth — deeper crawl → longer budget. A regression that pinned
-// katana to cfg.EngineTimeout (which is what pre-v0.1.5 did) truncated deep-mode crawls on
-// rich hosts.
+// TestKatanaBudget_ScalesWithDepth — round-8 calibration: raw katana on www.cyberwhiz (1404
+// URLs, JS-heavy) and otatool (32 URLs) both finished in ~13s at -d 3 -rl 30. Formula is
+// (60 + depth*30) with a ~10× hedge over measured. d=3 → 150s; d=6 → 240s. A regression that
+// used the old 300 pages × depth × 300ms guess would push d=3 to 270s+ and drift out of
+// the tight band.
 func TestKatanaBudget_ScalesWithDepth(t *testing.T) {
 	shallow := katanaBudget(&Config{Mode: "standard"}, 3)
 	deeper := katanaBudget(&Config{Mode: "standard"}, 6)
 	if !(deeper > shallow) {
 		t.Errorf("katanaBudget must grow with depth; shallow(d=3)=%d deeper(d=6)=%d", shallow, deeper)
 	}
-	// d=3 → 300*3=900 pages → 270s. Any drift outside 200–500s is a regression.
-	if shallow < 200 || shallow > 500 {
-		t.Errorf("katanaBudget(d=3) = %ds; expected 200–500", shallow)
+	// 60 + 3*30 = 150s. Measured on real hosts: ~13s. 100–200s covers the round-8 formula.
+	if shallow < 100 || shallow > 200 {
+		t.Errorf("katanaBudget(d=3) = %ds; expected 100–200 (round-8 measured wall-clock ≈13s)", shallow)
 	}
 }
 
-// TestKatanaBudget_FastCap — fast mode must cap page estimate so a rich host doesn't wedge a
-// fast-mode batch. Practically: at very high depth (say 20) the budget hits the fast cap
-// (1500 pages × 300ms = 450s) instead of scaling linearly.
+// TestKatanaBudget_FastCap — fast mode caps at 180s to keep batch throughput. A d=20 fast
+// call MUST hit the cap; the deep case at the same depth must exceed it. This catches a
+// regression that swaps the fast/deep branches.
 func TestKatanaBudget_FastCap(t *testing.T) {
 	fast := katanaBudget(&Config{Mode: "fast"}, 20)
 	deep := katanaBudget(&Config{Mode: "deep"}, 20)
-	if !(fast < deep) {
-		t.Errorf("fast mode must cap the page estimate; fast=%d deep=%d", fast, deep)
+	if fast != 180 {
+		t.Errorf("fast mode katanaBudget at d=20 = %ds; expected exactly 180 (cap)", fast)
+	}
+	if !(deep > fast) {
+		t.Errorf("deep mode must exceed fast cap at d=20; fast=%d deep=%d", fast, deep)
 	}
 }
 

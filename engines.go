@@ -484,29 +484,31 @@ func runKatana(targetURL string, cfg *Config) []string {
 	return out
 }
 
-// katanaBudget scales the katana deadline to the crawl depth and mode. Katana visits a set of
-// URLs, JS-parses each response, and enqueues new links up to depth. The realistic wall-clock
-// per page (fetch + parse + queue) at -rl 30 is ~40ms on a warm host, but network variance and
-// large HTML pages push the effective per-page cost to ~200ms in the field. Round-6 sweep on
-// www.cyberwhiz saw katana enqueue 1385+ URLs at -d 3; at 200ms/URL that's ~280s. Cap and
-// hedge for higher depth. Fast mode caps depth in the formula to keep the batch cheap; deep
-// mode gets the full multiplier for the same reason ferox does in deep — the operator asked.
+// katanaBudget derives the katana deadline from its measured wall-clock, not from a guess.
+// Round-8 calibration on the two round-7 hosts (raw katana, no sift, -d 3 -rl 30):
+//
+//	www.cyberwhiz.co.uk       1404 URLs in 12.6s   (rich content, JS-heavy)
+//	otatool.arcelikiot.com      32 URLs in 13.7s   (bare API + Okta redirect)
+//
+// Even the rich case ran in ~13s — katana's concurrent workers + JS parser overlap fetches
+// so effective per-URL cost is ~90ms, well under -rl's 33ms floor. The pre-calibration
+// formula (`300 pages × depth × 300ms` = 270s at -d 3) was ~20× oversized and would have
+// silently accepted a truncation on any host that happened to blow past a made-up estimate.
+//
+// The empirical formula: 60s base (TLS setup + slow first fetch) + depth × 30s. That gives
+// ~10× headroom over the measured wall-clock and covers a slow-VPN / paranoid-rate case
+// without stalling a batch. Fast mode caps at 180s because the operator picked fast to
+// stay under the tail — deep mode gets the full linear scale.
+//
+// -engine-timeout on the CLI still wins (engineTimeoutSetByUser) so an exotic case can be
+// dialed in without editing the formula.
 func katanaBudget(cfg *Config, depth int) int {
 	if depth < 3 {
 		depth = 3
 	}
-	// pagesEstimate is the empirical middle: fewer than 100 for a bare API, thousands for a
-	// rich content site. 300 × depth-multiplier is a workable center.
-	pagesEstimate := 300 * depth
-	// Fast mode: cap the estimate — the operator picked fast because they don't want a long
-	// tail. Deep mode: no cap — the operator opted into the wait.
-	if cfg.Mode == "fast" && pagesEstimate > 1500 {
-		pagesEstimate = 1500
-	}
-	// 200 ms per page + 1.5× hedge for network jitter and JS-heavy pages.
-	seconds := (pagesEstimate * 300) / 1000
-	if seconds < 60 {
-		seconds = 60
+	seconds := 60 + depth*30
+	if cfg.Mode == "fast" && seconds > 180 {
+		seconds = 180
 	}
 	return seconds
 }
