@@ -171,6 +171,13 @@ type Config struct {
 	// override without a code change.
 	engineTimeoutSetByUser bool
 
+	// Verbose flips record() from "actionable-only" (200 + secrets + verified bypass +
+	// kind:config + review) to "print every finding". JSON/HAR output are unaffected —
+	// a machine consumer always gets the full set regardless of what the console shows.
+	// Default false because an operator scanning a live target wants "look here" signals,
+	// not a wall of 403 walls and 3xx canonical redirects to scroll past.
+	Verbose bool
+
 	// Mode selects the ferox aggressiveness profile:
 	//   - "fast"     : ferox --no-recursion, extensions IGNORED (wordlist only). Cheapest;
 	//                  best for a first-look sweep across many hosts.
@@ -406,6 +413,8 @@ func main() {
 	flag.IntVar(&cfg.Threshold, "threshold", -1, "simhash hamming threshold (-1 = auto)")
 	flag.IntVar(&cfg.MaxDepth, "depth", 2, "recursion depth (0 = no recursion)")
 	flag.BoolVar(&cfg.Bypass, "bypass", true, "run nomore403 on 403/401 findings if installed")
+	flag.BoolVar(&cfg.Verbose, "verbose", false,
+		"print every finding (default: only 200s + secrets + verified bypass + kind:config + review). JSON output is unaffected.")
 	flag.StringVar(&cfg.Mode, "mode", "standard",
 		"ferox aggressiveness: fast (no ext, no recursion) | standard (ext, no recursion) | deep (ext, recursion)")
 	auditMode := flag.Bool("audit", false, "run integration audit (stands up a local mock, exercises every engine) and exit")

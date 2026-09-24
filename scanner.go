@@ -800,6 +800,44 @@ func buildBypassPreview(r Resp) string {
 	return esc
 }
 
+// hyperlink wraps text in an OSC 8 escape sequence so terminals that support it
+// (iTerm2, WezTerm, VSCode, Windows Terminal, GNOME Terminal 3.34+, Alacritty,
+// modern macOS Terminal.app) render it as a clickable link that opens in the
+// default browser. Terminals that don't support OSC 8 render the text unchanged
+// (they strip the escape and show the label). Safe on every terminal.
+func hyperlink(url, text string) string {
+	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
+}
+
+// isActionable decides whether a Finding is worth showing on the console. The
+// default lucid output shows only "look here" rows so the operator isn't drowning
+// in 403 walls and 3xx canonical redirects. -verbose flips this to always-true.
+// The JSON/HAR outputs are unaffected — a machine consumer always gets everything.
+func isActionable(f Finding) bool {
+	if f.Review {
+		return true
+	}
+	if len(f.Secrets) > 0 {
+		return true
+	}
+	if f.Bypass != "" {
+		return true
+	}
+	if f.Kind == "config" {
+		return true
+	}
+	if f.Note != "" {
+		// note carries context — waf-pattern-block, root-wall-bypass — always relevant.
+		return true
+	}
+	// Real 200s only. Skip 200-shell (SPA frame) and 200-asset (js/css/img); the
+	// operator wants pages, not the app's own furniture.
+	if f.Status == 200 && f.Kind != "shell" && f.Kind != "asset" {
+		return true
+	}
+	return false
+}
+
 func (s *Scanner) record(f Finding) {
 	s.mu.Lock()
 	s.findings = append(s.findings, f)
@@ -814,8 +852,14 @@ func (s *Scanner) record(f Finding) {
 		}
 	}
 	s.mu.Unlock()
+	// Actionable filter: default hides 3xx/4xx/asset/shell rows so the console is only
+	// "look here" signals. -verbose flips this off and prints every recorded finding.
+	if !s.cfg.Verbose && !isActionable(f) {
+		return
+	}
 	if f.Review {
-		fmt.Printf("  \x1b[33m[?%d] %s\x1b[0m \x1b[90m(%s)\x1b[0m \x1b[33m[review]\x1b[0m\n", f.Status, f.URL, f.Source)
+		urlPart := hyperlink(f.URL, f.URL)
+		fmt.Printf("  \x1b[33m[?%d]\x1b[0m %s \x1b[90m(%s)\x1b[0m \x1b[33m[review]\x1b[0m\n", f.Status, urlPart, f.Source)
 		return
 	}
 	col := 32
@@ -840,5 +884,8 @@ func (s *Scanner) record(f Finding) {
 	if f.Note != "" {
 		extra += " \x1b[90m[" + f.Note + "]\x1b[0m"
 	}
-	fmt.Printf("  \x1b[%dm[%d] %s\x1b[0m \x1b[90m(%s d%d)\x1b[0m%s\n", col, f.Status, f.URL, f.Source, f.Dist, extra)
+	// The URL becomes a clickable hyperlink; the status bracket stays colored so the
+	// row still has strong "200-green / 4xx-red" scan-ability at a glance.
+	urlPart := hyperlink(f.URL, f.URL)
+	fmt.Printf("  \x1b[%dm[%d]\x1b[0m %s \x1b[90m(%s d%d)\x1b[0m%s\n", col, f.Status, urlPart, f.Source, f.Dist, extra)
 }

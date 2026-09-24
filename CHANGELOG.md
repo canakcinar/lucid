@@ -4,6 +4,19 @@ All notable changes to lucid are recorded here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [v0.2.2] — 2026-09-24
+
+Terminal output ergonomics. Live scans now show only the rows an operator can act on, and every URL is clickable in modern terminals. JSON/HAR outputs are unaffected — a machine consumer always gets the full finding set.
+
+### Added
+- **`isActionable` console filter** (default). A row prints when it's a real `200` (not shell/asset), carries `secrets:` matches, has a `Bypass:` label, is `kind:config`, has a `Note:` (waf-pattern-block / root-wall-bypass), or lands in the review band. Everything else — 3xx canonical redirects, 4xx walls, 200-shell frames, 200-asset (js/css/img) — stays silent on the console but still lands in the JSON.
+- **OSC 8 hyperlinks** on every printed URL. iTerm2, WezTerm, VSCode terminal, Windows Terminal, Alacritty, modern GNOME Terminal, macOS Terminal.app render the URL as clickable → opens in the default browser. Terminals without OSC 8 support render the text unchanged (safe on every terminal).
+- **`-verbose`** flag flips the filter off — every finding prints again (v0.2.1 behavior).
+- **`TestIsActionable_TerminalFilter`** locks the decision matrix (10 cases). `TestHyperlink_OSC8Shape` locks the OSC 8 wire format so a stray character doesn't silently break click-to-open.
+
+### Design note
+The rationale for hiding 4xx by default is the round-10 sweep evidence: v0.2.1 printed **253 lines** across 24 targets, of which only ~30 were actionable. The other 220+ were 403 walls, 3xx canonical dir redirects, and asset/shell 200s that scrolled past too fast to triage. The JSON kept everything for downstream tools; the console now shows the "look here" cut.
+
 ## [v0.2.1] — 2026-09-24
 
 Round-10 closes the "known small gaps" checklist. Every listed item shipped with a test where the check is meaningful.
@@ -126,7 +139,8 @@ First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / k
 - `-audit` runs in ~13 s on a stock CI runner; the default `go test ./...` suite is ~1 s (integration and benchmark suites are behind build tags).
 - Verify by tag: `go install github.com/canakcinar/lucid@v0.1.0` and run `lucid -version`.
 
-[Unreleased]: https://github.com/canakcinar/lucid/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/canakcinar/lucid/compare/v0.2.2...HEAD
+[v0.2.2]: https://github.com/canakcinar/lucid/releases/tag/v0.2.2
 [v0.2.1]: https://github.com/canakcinar/lucid/releases/tag/v0.2.1
 [v0.2.0]: https://github.com/canakcinar/lucid/releases/tag/v0.2.0
 [v0.1.5]: https://github.com/canakcinar/lucid/releases/tag/v0.1.5

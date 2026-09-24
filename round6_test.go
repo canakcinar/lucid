@@ -212,6 +212,47 @@ func TestSecretPattern_AWSAPIGateway(t *testing.T) {
 	}
 }
 
+// TestIsActionable_TerminalFilter — the console default hides "wall of noise" rows
+// (403 walls, 3xx canonical redirects, 200-asset, 200-shell) so operator sees only
+// "look here" findings. JSON/HAR output are unaffected. Test locks the decision
+// matrix so a maintainer's tweak doesn't silently start printing 4xx rows again.
+func TestIsActionable_TerminalFilter(t *testing.T) {
+	cases := []struct {
+		name string
+		f    Finding
+		want bool
+	}{
+		{"real 200 page", Finding{Status: 200}, true},
+		{"200 SPA shell", Finding{Status: 200, Kind: "shell"}, false},
+		{"200 static asset", Finding{Status: 200, Kind: "asset"}, false},
+		{"200 leaky config", Finding{Status: 200, Kind: "config"}, true},
+		{"secrets fired on any status", Finding{Status: 200, Secrets: []string{"aws-akid"}}, true},
+		{"401 with bypass", Finding{Status: 401, Bypass: "verified:headers:X-Forwarded-For: 127.0.0.1"}, true},
+		{"403 wall (no bypass, no note)", Finding{Status: 403}, false},
+		{"403 with waf-pattern note", Finding{Status: 403, Note: "waf-pattern-block"}, true},
+		{"301 canonical redirect", Finding{Status: 301}, false},
+		{"review-band borderline", Finding{Status: 200, Kind: "shell", Review: true}, true},
+	}
+	for _, c := range cases {
+		if got := isActionable(c.f); got != c.want {
+			t.Errorf("isActionable(%s) = %v; want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestHyperlink_OSC8Shape — OSC 8 wrapping must produce the sequence terminals
+// (iTerm2/WezTerm/VSCode/Windows Terminal/Alacritty/modern GNOME/Terminal.app)
+// parse as a clickable link. Terminals that don't understand OSC 8 render the
+// text unchanged (they strip escapes); this test just locks the wire shape so
+// a stray character (missing ST, wrong CSI) doesn't silently break click-to-open.
+func TestHyperlink_OSC8Shape(t *testing.T) {
+	got := hyperlink("https://example.com/admin", "https://example.com/admin")
+	want := "\x1b]8;;https://example.com/admin\x1b\\https://example.com/admin\x1b]8;;\x1b\\"
+	if got != want {
+		t.Errorf("hyperlink OSC 8 shape mismatch\nwant: %q\ngot : %q", want, got)
+	}
+}
+
 // TestNomoreBudget_FastMode — fast mode caps nomore403 at 15s (baseline is ~31s with the
 // current technique×payload matrix). Standard/deep get the full derived budget so a rich
 // target still gets the whole bypass surface.
