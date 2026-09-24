@@ -60,12 +60,16 @@ func TestRunAudit_Integration(t *testing.T) {
 		t.Errorf("runAudit output missing the 'all N checks passed' summary line — a check may have been silently downgraded. Tail:\n%s",
 			tailN(out, 30))
 	}
-	// Every check row starts with "│ ". A count matches the summary line — if the printer
-	// stops emitting rows, the summary line alone would still look green.
+	// Every check row starts with "│ ". Exact match — the contract is 14 integration checks
+	// in a healthy install (ffuf/feroxbuster/katana/gau/nomore403 + WebSocket/HAR/passive
+	// probes + calibrator + soft-404 + WAF-collapse + resume + auth + parseNomore403). A
+	// slack `<` bound would let a silently-dropped check slip past this gate; if a check is
+	// intentionally added or removed, bump this constant AND write a note in CHANGELOG.md.
+	const expectedChecks = 14
 	rows := strings.Count(out, "│ ")
-	if rows < 12 {
-		t.Errorf("runAudit only rendered %d check rows (expected 14 in a healthy install); output was likely truncated",
-			rows)
+	if rows != expectedChecks {
+		t.Errorf("runAudit rendered %d check rows; expected exactly %d — a check was added, removed, or the printer stopped mid-run",
+			rows, expectedChecks)
 	}
 }
 

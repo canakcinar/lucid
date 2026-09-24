@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # test runs the fast checks that must pass on every push:
+  #   - go vet ./...           — catches copylocks, printf, and shadow classes of bug at build time
+  #   - go build ./...         — verifies the tree compiles on the pinned Go version
+  #   - go test -short ./...   — the ~0.5s smoke slice; the full suite runs in the coverage job
+  test:
+    name: vet + build + test-short
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test -short ./...
+
+  # test-race runs the concurrency stress suite under -race. The full test set is ~11s locally;
+  # -race roughly doubles that, but it's the only way to catch a scanner-worker data race before
+  # a user reports "sometimes findings are missing" — worth the CI minute.
+  test-race:
+    name: test -race
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: go test -race ./...
+
+  # audit runs the -audit integration self-check plus the //go:build integration tag suite.
+  # Kept in its own job because it stands up an in-process httptest server per test case and
+  # a maintainer bisecting a functional regression wants a SEPARATE red/green signal from the
+  # unit slice.
+  audit:
+    name: audit + integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: go build -o sift ./...
+      - run: ./sift -audit
+      - run: go test -tags=integration -run TestRunAudit_Integration ./...

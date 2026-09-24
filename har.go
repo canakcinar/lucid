@@ -158,7 +158,7 @@ func buildHAR(caps []harCapture) harDocument {
 	doc := harDocument{
 		Log: harLog{
 			Version: "1.2",
-			Creator: harCreator{Name: "sift", Version: "0"},
+			Creator: harCreator{Name: "sift", Version: version},
 			Entries: make([]harEntry, 0, len(caps)),
 		},
 	}

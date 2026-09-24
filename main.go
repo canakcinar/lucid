@@ -17,6 +17,11 @@ var assetRe = regexp.MustCompile(`(?i)\.(jpg|jpeg|jfif|png|gif|svg|webp|ico|css|
 
 func isAsset(u string) bool { return assetRe.MatchString(u) }
 
+// version is patched at build time via `-ldflags "-X main.version=v0.1.0"`. Left as "dev"
+// for `go build ./...` and `go run .` so a source-tree build never lies about being a tagged
+// release. Consumed by -version, the HAR creator field, and the default -ua string.
+var version = "dev"
+
 // collapse merges findings that share the same status AND a near-identical body (Hamming ≤ 2)
 // into a single representative when the cluster is large — e.g. one WAF/Cloudflare 403 block
 // page returned for dozens of blocked paths. Uses the SimHash core; distinct pages never merge.
@@ -374,6 +379,7 @@ func main() {
 	flag.IntVar(&cfg.MaxDepth, "depth", 2, "recursion depth (0 = no recursion)")
 	flag.BoolVar(&cfg.Bypass, "bypass", true, "run nomore403 on 403/401 findings if installed")
 	auditMode := flag.Bool("audit", false, "run integration audit (stands up a local mock, exercises every engine) and exit")
+	versionFlag := flag.Bool("version", false, "print the sift version and exit")
 	flag.BoolVar(&cfg.Archive, "archive", true, "pull historical paths via gau if installed")
 	flag.IntVar(&cfg.Delay, "delay", 0, "base delay per request (ms); auto-backoff on 429/503")
 	flag.IntVar(&cfg.ReviewMargin, "review", 2, "review-band width just inside threshold (0 = off)")
@@ -409,10 +415,17 @@ func main() {
 	// opts in with -force-empty-pass (Basic with an empty password is legitimate on some appliances).
 	basic := flag.String("u", "", "HTTP Basic auth 'user:pass' (populates Authorization header)")
 	forceEmptyPass := flag.Bool("force-empty-pass", false, "allow -u with an empty password")
-	ua := flag.String("ua", "Mozilla/5.0 (compatible; sift/0.4)", "user agent")
+	ua := flag.String("ua", "Mozilla/5.0 (compatible; sift/"+version+")", "user agent")
 	var hdr headerFlags
 	flag.Var(&hdr, "H", "extra request header 'K: V' (repeatable)")
 	flag.Parse()
+	// -version prints and exits BEFORE -audit and the URL requirement so a packaging script
+	// (`sift -version` in a Dockerfile / brew formula) doesn't need to hand the binary a URL
+	// just to learn what version it shipped.
+	if *versionFlag {
+		fmt.Println("sift", version)
+		os.Exit(0)
+	}
 	// -audit runs the integration self-check and exits — no URL needed. This is the answer to
 	// "how do I know my install is healthy without waiting for a real scan to fail?"
 	if *auditMode {
