@@ -57,6 +57,11 @@ type Resp struct {
 	// asked for them (see fetchWithHeaders); a bare fetch() leaves this nil so the hot path
 	// (20k-URL scans without -har) doesn't allocate a map per request.
 	Headers map[string]string
+	// Cookies is the raw Set-Cookie header slice — one entry per Set-Cookie the server
+	// emitted. Kept out of Headers (which is map[string]string) because a HAR consumer
+	// (Burp/ZAP) expects one NVP per Set-Cookie, not a delimited join, or session state
+	// gets misparsed on import.
+	Cookies []string
 }
 
 func newClient(cfg *Config) (*http.Client, error) {
@@ -170,8 +175,9 @@ func fetchWith(client *http.Client, target *url.URL, rawurl string, cfg *Config,
 		}
 	}
 	// HAR-relevant headers — kept behind a Config guard so 20k-URL scans without -har don't
-	// pay the map-alloc cost. `Set-Cookie` is a header slice (may repeat); we join with `; `
-	// so the HAR entry still reflects every value the server returned.
+	// pay the map-alloc cost. Set-Cookie is a header SLICE (may repeat) and we surface it as
+	// r.Cookies (one entry per Set-Cookie) so buildHAR can emit one NVP per cookie — Burp/ZAP
+	// misparse a joined value as a single cookie and drop session state on import.
 	if cfg.HAROutput != "" {
 		r.Headers = map[string]string{}
 		for _, k := range []string{"Server", "Location", "WWW-Authenticate", "X-Powered-By",
@@ -181,7 +187,7 @@ func fetchWith(client *http.Client, target *url.URL, rawurl string, cfg *Config,
 			}
 		}
 		if sc := resp.Header.Values("Set-Cookie"); len(sc) > 0 {
-			r.Headers["Set-Cookie"] = strings.Join(sc, "; ")
+			r.Cookies = append(r.Cookies, sc...)
 		}
 	}
 	return r

@@ -563,6 +563,8 @@ func (s *Scanner) verify(c cand, p Profile, dirAttempts, dirErrs *atomic.Int64) 
 			CType:       r.CType,
 			Body:        body,
 			RespHeaders: r.Headers, // set by fetch() when cfg.HAROutput != ""; nil otherwise
+			SetCookies:  r.Cookies, // one per Set-Cookie the server emitted (nil if no cookies)
+			RedirectURL: r.Via,     // Location header on 3xx; empty on 2xx/4xx/5xx
 		})
 	}
 	f := Finding{URL: c.url, Status: r.Status, Len: r.Len, Source: c.source, Via: r.Via,

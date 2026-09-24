@@ -36,6 +36,15 @@ type harCapture struct {
 	Body        string // already truncated to harBodyCap by the caller
 	Elapsed     int    // ms
 	RespHeaders map[string]string
+	// SetCookies carries each Set-Cookie the server sent as a separate string. buildHAR
+	// emits them as distinct NVP entries (HAR 1.2 spec + Burp/ZAP contract) instead of a
+	// single delimited value — otherwise the importer sees "one cookie" with the delimiter
+	// baked in and every subsequent replay ships the wrong session.
+	SetCookies []string
+	// RedirectURL is the Location header on a 3xx response. sift records but never follows
+	// redirects (scope guard); surfacing it in the HAR entry lets Burp/ZAP show the chain
+	// so an analyst can see "/admin -> /login" without opening the raw body.
+	RedirectURL string
 }
 
 // harScope holds the mutex + slice for a running scan's captures. Split from Scanner
@@ -169,13 +178,14 @@ func buildHAR(caps []harCapture) harDocument {
 				Status:      c.Status,
 				StatusText:  "",
 				HTTPVersion: "HTTP/1.1",
-				Headers:     namedHeaders(c.RespHeaders),
+				Headers:     mergeRespHeaders(c.RespHeaders, c.SetCookies),
 				Cookies:     []harNVP{},
 				Content: harContent{
 					Size:     len(body),
 					MimeType: firstNonEmpty(c.CType, "text/plain"),
 					Text:     body,
 				},
+				RedirectURL: c.RedirectURL,
 				HeadersSize: -1,
 				BodySize:    len(body),
 				Extra:       harRespExtra{Truncated: truncated},
@@ -192,6 +202,23 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// mergeRespHeaders builds the HAR headers array from the named-header map PLUS one entry per
+// Set-Cookie the server sent. Distinct NVPs for cookies is the HAR 1.2 shape Burp/ZAP expect
+// when they build the session store on import — joining into a single value silently drops
+// every Set-Cookie past the first.
+func mergeRespHeaders(named map[string]string, cookies []string) []harNVP {
+	base := namedHeaders(named)
+	if len(cookies) == 0 {
+		return base
+	}
+	out := make([]harNVP, 0, len(base)+len(cookies))
+	out = append(out, base...)
+	for _, c := range cookies {
+		out = append(out, harNVP{Name: "Set-Cookie", Value: c})
+	}
+	return out
 }
 
 // namedHeaders converts sift's Resp.Headers map into the HAR name/value array. Order is

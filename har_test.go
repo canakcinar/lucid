@@ -151,3 +151,70 @@ func TestHARScope_Concurrent(t *testing.T) {
 		t.Error("snapshot returned a shared reference — a caller mutation leaked back")
 	}
 }
+
+// TestBuildHAR_MultipleSetCookiesEmitDistinctNVPs — the Burp/ZAP contract for HAR imports:
+// each Set-Cookie header becomes its own NVP. Joining them into one string is the exact bug
+// that made a login response's second cookie (CSRF token) invisible after import.
+func TestBuildHAR_MultipleSetCookiesEmitDistinctNVPs(t *testing.T) {
+	caps := []harCapture{{
+		URL:    "https://t/login",
+		Status: 200,
+		SetCookies: []string{
+			"sid=abc; Path=/; HttpOnly",
+			"csrf=xyz; SameSite=Strict",
+			"lang=en; Path=/",
+		},
+	}}
+	doc := buildHAR(caps)
+	seen := 0
+	values := map[string]bool{}
+	for _, h := range doc.Log.Entries[0].Response.Headers {
+		if h.Name == "Set-Cookie" {
+			seen++
+			values[h.Value] = true
+		}
+	}
+	if seen != 3 {
+		t.Fatalf("expected 3 distinct Set-Cookie NVPs, got %d — Burp will drop session tokens", seen)
+	}
+	for _, want := range []string{"sid=abc; Path=/; HttpOnly", "csrf=xyz; SameSite=Strict", "lang=en; Path=/"} {
+		if !values[want] {
+			t.Errorf("Set-Cookie %q lost after buildHAR round-trip", want)
+		}
+	}
+}
+
+// TestBuildHAR_NoSetCookies_NoExtraEntries — the additive path must be a no-op when the
+// server didn't emit any Set-Cookie (the common case). We don't want an empty Set-Cookie
+// NVP leaking into HARs from ordinary GETs.
+func TestBuildHAR_NoSetCookies_NoExtraEntries(t *testing.T) {
+	caps := []harCapture{{
+		URL:         "https://t/x",
+		RespHeaders: map[string]string{"Server": "nginx/1.25"},
+		Status:      200,
+	}}
+	doc := buildHAR(caps)
+	for _, h := range doc.Log.Entries[0].Response.Headers {
+		if h.Name == "Set-Cookie" {
+			t.Errorf("unexpected Set-Cookie NVP on a scan with no cookies: %q", h.Value)
+		}
+	}
+}
+
+// TestBuildHAR_RedirectURLPropagates — a 3xx Finding must land its Location header in
+// response.redirectURL so a Burp/ZAP importer shows the chain. Regressing this means an
+// analyst importing a HAR sees "/admin 302" with no target, and has to hand-inspect the
+// body to find where the redirect went.
+func TestBuildHAR_RedirectURLPropagates(t *testing.T) {
+	caps := []harCapture{
+		{URL: "https://t/admin", Status: 302, RedirectURL: "/login"},
+		{URL: "https://t/api", Status: 200}, // 200 has no redirect; must stay empty
+	}
+	doc := buildHAR(caps)
+	if doc.Log.Entries[0].Response.RedirectURL != "/login" {
+		t.Errorf("3xx redirectURL lost: got %q", doc.Log.Entries[0].Response.RedirectURL)
+	}
+	if doc.Log.Entries[1].Response.RedirectURL != "" {
+		t.Errorf("200 must have empty redirectURL; got %q", doc.Log.Entries[1].Response.RedirectURL)
+	}
+}

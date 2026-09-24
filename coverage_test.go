@@ -1,13 +1,17 @@
 package main
 
 import (
+	"fmt"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // TestNomoreBudget_ScalesWithConfig — the deadline formula drives whether nomore403 finishes
@@ -339,5 +343,182 @@ func TestRunAudit_Integration(t *testing.T) {
 	code := runAudit()
 	if code != 0 {
 		t.Errorf("runAudit returned %d — some integration check failed (see stderr above)", code)
+	}
+}
+
+// --- WebSocket / SSE detection ---
+
+// TestWsPathHint_KnownConventions — sift promotes a plain-GET failure (400/426) to a WS
+// probe ONLY when the path names a realtime endpoint. Regressing this pattern means every
+// broken endpoint on any host burns an extra WS-Upgrade fetch. Convention list matches
+// wsHintRe verbatim: ws, socket, socket.io, stream, events (case-insensitive).
+func TestWsPathHint_KnownConventions(t *testing.T) {
+	// Positive: real-world realtime paths must hint.
+	positive := []string{
+		"http://h/ws",
+		"http://h/api/ws",
+		"http://h/socket.io/",
+		"http://h/stream/live",
+		"http://h/events",
+		"http://h/events?channel=1",
+		"http://h/socket",
+		"http://h/WS", // case-insensitive
+	}
+	for _, u := range positive {
+		if !wsPathHint(u) {
+			t.Errorf("wsPathHint(%q) = false — realtime convention missed, wsProbe won't fire", u)
+		}
+	}
+	// Negative: ordinary paths must NOT hint (avoids gratuitous WS probes).
+	negative := []string{
+		"http://h/",
+		"http://h/admin",
+		"http://h/api/users",
+		"http://h/wsdl",       // "ws" in the middle, not a full segment
+		"http://h/streams",    // full segment but "streams" != "stream" convention
+		"http://h/eventual",   // starts with "event" but not a real segment
+	}
+	for _, u := range negative {
+		if wsPathHint(u) {
+			t.Errorf("wsPathHint(%q) = true — false positive would burn an extra WS probe on every ordinary path", u)
+		}
+	}
+	// Bad URL still returns false, not panic.
+	if wsPathHint("::not-a-url::") {
+		t.Error("wsPathHint on garbage must be false, not true (would falsely fire wsProbe)")
+	}
+}
+
+// TestWsProbe_Returns101OnUpgrade — the exact contract that lets Kind="ws" work: a server
+// that answers a WebSocket handshake with a real 101 must surface as code 101. net/http
+// hides 101 from us, hence the raw dial. This test uses net.Listen so we can hand-craft
+// the exact handshake reply.
+func TestWsProbe_Returns101OnUpgrade(t *testing.T) {
+	// Bind a raw TCP listener that replies with 101 Switching Protocols and closes.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// Read a small chunk of the request to keep the client's Write from blocking on
+		// tiny TCP buffers; we don't parse it.
+		buf := make([]byte, 4096)
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, _ = conn.Read(buf)
+		fmt.Fprintf(conn, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+	}()
+
+	target, _ := url.Parse("http://" + ln.Addr().String() + "/")
+	cfg := &Config{Timeout: 3, UA: "sift-test"}
+	code, err := wsProbe(target, "http://"+ln.Addr().String()+"/ws", cfg)
+	if err != nil {
+		t.Fatalf("wsProbe returned err on a valid 101: %v", err)
+	}
+	if code != 101 {
+		t.Errorf("wsProbe returned %d, want 101 — Kind=\"ws\" would silently disable", code)
+	}
+}
+
+// TestWsProbe_NonUpgradeStaysNon101 — a normal HTTP endpoint must NOT be mislabelled as a
+// WebSocket handshake. Regression guard against a bug that would promote every /ws-shaped
+// URL that also answers a plain GET.
+func TestWsProbe_NonUpgradeStaysNon101(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	target, _ := url.Parse(srv.URL + "/")
+	cfg := &Config{Timeout: 3, UA: "sift-test"}
+	code, err := wsProbe(target, srv.URL+"/ws", cfg)
+	if err != nil {
+		t.Fatalf("wsProbe returned err on plain 200: %v", err)
+	}
+	if code == 101 {
+		t.Error("plain HTTP 200 must NOT be promoted to 101")
+	}
+}
+
+// TestWsProbe_BadHost — must return an error, never panic.
+func TestWsProbe_BadHost(t *testing.T) {
+	target, _ := url.Parse("http://target/")
+	cfg := &Config{Timeout: 1}
+	if _, err := wsProbe(target, "no-scheme-no-host", cfg); err == nil {
+		t.Error("wsProbe on empty host must return an error")
+	}
+}
+
+// TestFetchWith_ExtraHeadersOverrideCfg — the contract that lets verifyBypass replay a
+// nomore403 winning header on top of the operator's -H defaults. The "extra" map MUST
+// override cfg.Headers when keys collide — otherwise a nomore403 win with the same
+// header name as an -H default would silently ship the old value and never reproduce.
+func TestFetchWith_ExtraHeadersOverrideCfg(t *testing.T) {
+	captured := make(chan http.Header, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case captured <- r.Header.Clone():
+		default:
+		}
+		w.WriteHeader(200)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	cfg := &Config{
+		Timeout: 3, UA: "sift-test", Insecure: true,
+		Headers: map[string]string{"X-Auth": "cfg-value", "Cookie": "session=abc"},
+	}
+	client := mustNewClient(t, cfg)
+	target, _ := url.Parse(srv.URL + "/")
+
+	r := fetchWith(client, target, srv.URL+"/x", cfg, map[string]string{
+		"X-Auth":            "extra-overrides", // must WIN over cfg
+		"X-Forwarded-For":   "127.0.0.1",       // additive, no cfg conflict
+	})
+	if r.Err != nil {
+		t.Fatalf("fetchWith: %v", r.Err)
+	}
+	h := <-captured
+	if got := h.Get("X-Auth"); got != "extra-overrides" {
+		t.Errorf("extra map failed to override cfg.Headers: got %q want %q", got, "extra-overrides")
+	}
+	if got := h.Get("X-Forwarded-For"); got != "127.0.0.1" {
+		t.Errorf("extra-only header lost: got %q", got)
+	}
+	if got := h.Get("Cookie"); got != "session=abc" {
+		t.Errorf("cfg.Header without collision must survive: got %q", got)
+	}
+	if got := h.Get("User-Agent"); got != "sift-test" {
+		t.Errorf("UA from cfg lost: got %q", got)
+	}
+}
+
+// TestFetchWith_BudgetExhausted — fetchWith must honor the same MaxReq budget as fetch.
+// Silently letting verifyBypass sneak past the budget would let a hostile target burn
+// arbitrary requests via a single 403 → nomore403 → verifyBypass chain.
+func TestFetchWith_BudgetExhausted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	cfg := &Config{Timeout: 3, UA: "sift-test", Insecure: true, MaxReq: 1}
+	client := mustNewClient(t, cfg)
+	target, _ := url.Parse(srv.URL + "/")
+
+	// First call fits.
+	if r := fetchWith(client, target, srv.URL+"/a", cfg, nil); r.Err != nil {
+		t.Fatalf("first call must succeed: %v", r.Err)
+	}
+	// Second call MUST hit errBudget.
+	r := fetchWith(client, target, srv.URL+"/b", cfg, nil)
+	if r.Err == nil {
+		t.Fatal("second call must return errBudget")
 	}
 }

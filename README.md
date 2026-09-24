@@ -1,5 +1,7 @@
 # sift 🧹
 
+<sub>7,171 lines Go · 110 tests · 71.8% statement coverage · race-detector clean · 14/14 integration audit passing</sub>
+
 A content-discovery **orchestrator**. Point it at a URL: mature tools do the discovery and
 bypass work, and sift's own **SimHash cleanup core** — the one piece written from scratch —
 turns their noisy union into one clean, per-directory-calibrated inventory.

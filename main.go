@@ -385,6 +385,7 @@ func main() {
 	flag.IntVar(&cfg.Collapse, "collapse", 5, "merge N+ findings sharing an identical response (0 = off)")
 	flag.StringVar(&cfg.HAROutput, "har", "", "write a HAR 1.2 export of every Finding's request/response (Cookie/Authorization redacted)")
 	harRequired := flag.Bool("har-required", false, "exit nonzero if -har was set but writing the HAR failed (default: warn+continue)")
+	oRequired := flag.Bool("o-required", false, "exit nonzero if -o was set but writing the JSON failed (default: warn+continue)")
 	exts := flag.String("e", "", "extensions to append, comma-separated (e.g. php,html,json)")
 	wordlist := flag.String("w", "", "wordlist file")
 	outfile := flag.String("o", "", "write findings as JSON to this file")
@@ -652,6 +653,7 @@ func main() {
 			fmt.Println(line)
 		}
 	}
+	oFailed := false
 	if *outfile != "" {
 		// JSON now wraps findings with meta so a CI script can tell whether the run was
 		// complete without parsing stderr. Legacy shape (just the array) is available via
@@ -679,15 +681,16 @@ func main() {
 		// A shared host shouldn't let other users read them.
 		if err := os.WriteFile(*outfile, b, 0600); err != nil {
 			fmt.Fprintln(os.Stderr, "output:", err)
+			oFailed = true
 		} else {
 			fmt.Printf("[+] json -> %s  (meta.coverage=%s)\n", *outfile, out.Meta.Coverage)
 		}
 	}
-	// -har-required makes a failed HAR write a fatal exit — CI jobs that gate on the HAR
-	// handoff (feeding Burp/ZAP) can stop the pipeline instead of getting a "clean" scan
-	// with no artifact. Default keeps the write best-effort so a stray disk-full doesn't
-	// throw away the JSON findings the operator does have.
-	if harFailed && *harRequired {
+	// -har-required / -o-required make failed writes a fatal exit — CI jobs that gate on the
+	// artifact (feeding Burp/ZAP or a downstream diff) can stop the pipeline instead of
+	// getting a "clean" scan with no artifact. Default keeps the write best-effort so a
+	// stray disk-full doesn't throw away the scan the operator does have.
+	if (harFailed && *harRequired) || (oFailed && *oRequired) {
 		os.Exit(2)
 	}
 }
