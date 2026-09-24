@@ -49,10 +49,18 @@ import (
 // --------------------------------------------------------------------------------------------
 
 // feroxBudget derives a work-appropriate ferox/ffuf timeout from the wordlist size and rate.
-// Uses `wc -l` on the wordlist path plus a 1.5× hedge and a 60s floor; when -rate is 0 (no
-// pacing) it assumes 40 req/s as a stock brute rate. This lets a user pass -w common.txt
-// without also learning to raise -engine-timeout — the deadline auto-scales to the workload
-// instead of silently truncating like the round-5 sweep showed.
+// The hedge multiplier is empirical, not guessed: two round-7 calibration runs against real
+// hosts (www.cyberwhiz.co.uk = rich content, otatool.arcelikiot.com = mid-density API) at
+// -w common.txt (4750) -d 3 --rate-limit 30 measured 1552s and 1374s of wall time respectively.
+// The v0.1.2 formula (1.5× hedge) predicted 712s — about half. Round-7 raised the hedge to
+// 3.0× to match the measured 1400–1550s band. The floor stays 60s so a small wordlist
+// (say 100 words) doesn't derive a <10s deadline that a warm-up handshake alone can exceed.
+//
+// The 3.0× multiplier absorbs ferox's recursion overhead: at -depth 3 each successful 200 hit
+// re-fuzzes the whole wordlist inside the sub-directory, so the effective request count grows
+// non-linearly with hit density. A linear "lines × depth / rate" walks past the real workload
+// on any host with content. When the wordlist is unreadable, the operator's -engine-timeout
+// stands in — a bad read never blocks a scan.
 func feroxBudget(cfg *Config, wordlist string) int {
 	lines := wordlistLineCount(wordlist)
 	if lines <= 0 {
@@ -68,8 +76,10 @@ func feroxBudget(cfg *Config, wordlist string) int {
 	if depthMul > 3 {
 		depthMul = 3
 	}
-	seconds := (lines * depthMul) / rate
-	seconds = seconds * 3 / 2 // 1.5× hedge for network jitter and retries
+	// 3.0× hedge — empirically calibrated to the round-7 measurements above. Was 1.5× in
+	// v0.1.2; 23/24 targets truncated at that value. Every future change to this constant
+	// should be justified by a new measurement (or a new rate-limit change), never guessed.
+	seconds := (lines * depthMul * 3) / rate
 	if seconds < 60 {
 		seconds = 60
 	}

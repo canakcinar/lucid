@@ -4,6 +4,22 @@ All notable changes to sift are recorded here. Format follows [Keep a Changelog]
 
 ## [Unreleased]
 
+## [v0.1.3] — 2026-09-24
+
+Empirical timeout calibration. The v0.1.2 formula (`lines × depth × 1.5 / rate`) predicted 712s for common.txt at rate 30, but two round-7 measurements against real hosts — running raw feroxbuster with no timeout — showed the true wall-clock is nearly 2× that:
+
+| target | wall-clock | v0.1.2 predicted | ratio |
+| :-- | :-- | :-- | :-- |
+| www.cyberwhiz.co.uk (rich content) | 1552s | 712s | 2.18× |
+| otatool.arcelikiot.com (mid-density API) | 1374s | 712s | 1.93× |
+
+### Changed
+- **`feroxBudget` hedge multiplier: 1.5 → 3.0**. common.txt at -depth 3 -rate 30 now derives 1425s instead of 712s, matching the measured 1400–1550s band. The 3.0× absorbs ferox's recursion overhead (each 200 hit re-fuzzes the whole wordlist inside the sub-directory, non-linear with hit density). Every future change to this constant should carry a new measurement — the `feroxBudget` comment block documents the empirical origin so a maintainer doesn't guess.
+
+### Notes
+- Measurements + methodology captured in the round-7 scratchpad (`round7/calibrate/measure.log`).
+- The `TestFeroxBudget_ScalesWithWordlist` bounds are now 1200 ≤ derived ≤ 2000; the old bounds (400 ≤ x ≤ 1200) would have let the 1.5× regression pass.
+
 ## [v0.1.2] — 2026-09-24
 
 Field-driven release: closes the 7 gaps the round-5 24-target sweep (CyberWhiz + arcelikiot, both authorized) exposed. Every fix has a test anchoring it; `sift -audit` still ships 14/14 green.
@@ -60,7 +76,8 @@ First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / k
 - `-audit` runs in ~13 s on a stock CI runner; the default `go test ./...` suite is ~1 s (integration and benchmark suites are behind build tags).
 - Verify by tag: `go install github.com/canakcinar/sift@v0.1.0` and run `sift -version`.
 
-[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.3...HEAD
+[v0.1.3]: https://github.com/canakcinar/sift/releases/tag/v0.1.3
 [v0.1.2]: https://github.com/canakcinar/sift/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/canakcinar/sift/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/canakcinar/sift/releases/tag/v0.1.0

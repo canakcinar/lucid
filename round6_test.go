@@ -12,8 +12,10 @@ import (
 // Each test here anchors one of the fixes so a regression can't slip past `go test -short`.
 
 // TestFeroxBudget_ScalesWithWordlist — common.txt (4750 words) at rate 30 must derive a
-// deadline ≥ ~400s. A regression to a fixed number would re-open the "truncate on every
-// common.txt sweep" bug that made 23/24 targets partial in round-5.
+// deadline within the empirically-measured 1400–1600s band (see feroxBudget's comment for
+// the round-7 calibration: www.cyberwhiz measured 1552s, otatool measured 1374s). A
+// regression that cut the hedge back to 1.5× would re-open the round-6 sweep failure
+// (23/24 targets partial). A regression that overshot (>2000s) would waste batch wall time.
 func TestFeroxBudget_ScalesWithWordlist(t *testing.T) {
 	f, err := os.CreateTemp("", "sift-wl-*.txt")
 	if err != nil {
@@ -27,12 +29,12 @@ func TestFeroxBudget_ScalesWithWordlist(t *testing.T) {
 
 	cfg := &Config{Rate: 30, MaxDepth: 2, EngineTimeout: 240}
 	got := feroxBudget(cfg, f.Name())
-	// 4750 * (2+1) * 3/2 / 30 = 712s. Recursion cap at 3× keeps this from exploding.
-	if got < 400 {
-		t.Errorf("feroxBudget for common.txt at rate 30 derived %ds; expected ≥ 400 — regression to fixed timeout", got)
+	// 4750 * (2+1) * 3 / 30 = 1425s. Recursion cap at 3× keeps this from exploding.
+	if got < 1200 {
+		t.Errorf("feroxBudget for common.txt at rate 30 derived %ds; expected ≥ 1200 — regression to the 1.5× hedge that truncated on live sweeps", got)
 	}
-	if got > 1200 {
-		t.Errorf("feroxBudget for common.txt derived %ds; expected ≤ 1200 — hedge is too aggressive", got)
+	if got > 2000 {
+		t.Errorf("feroxBudget for common.txt derived %ds; expected ≤ 2000 — hedge is overshooting the empirical band", got)
 	}
 }
 
