@@ -4,6 +4,21 @@ All notable changes to lucid are recorded here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [v0.2.3] — 2026-09-24
+
+Console now shows the **actual matched secret value**, not just the pattern name. The v0.2.2 output said `[SECRET aws-api-gateway]` and left the operator to open the HAR to see which URL fired; v0.2.3 prints the URL that leaked it (round-10 already made the finding line's URL clickable via OSC 8) AND the matched substring on its own indented line.
+
+### Added
+- **`SecretMatch{Name, Value}`** type in `sensitive.go` and a new `Finding.SecretMatches []SecretMatch` field on the finding schema. Value is truncated to 200 chars so a bloated body can't stuff the console.
+- **`scanSecretsWithValues`** returns the pattern name + actual matched substring. Legacy `scanSecrets` is now a shim over it (returns names only) so any external caller stays working.
+- **Console output**: each secret prints on its own indented line under the finding:
+  ```
+    [200] https://mailservices.arcelikiot.com/jsAlt/config.json (katana d64) [config] [SECRET aws-api-gateway]
+         ↳ aws-api-gateway → https://utbm4e6o56.execute-api.eu-central-1.amazonaws.com/v2
+  ```
+- **JSON**: new `secret_matches: [{name, value}]` field alongside the legacy `secrets: [name,…]`. A machine consumer picks whichever shape it already parses.
+- **2 new tests**: `TestScanSecretsWithValues_ReturnsActualMatch` (contract lock — every match has a non-empty Value that's a body substring, and the legacy shim never drifts from the new API), `TestScanSecretsWithValues_TruncatesLongValue` (200-char cap).
+
 ## [v0.2.2] — 2026-09-24
 
 Terminal output ergonomics. Live scans now show only the rows an operator can act on, and every URL is clickable in modern terminals. JSON/HAR outputs are unaffected — a machine consumer always gets the full finding set.
@@ -139,7 +154,8 @@ First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / k
 - `-audit` runs in ~13 s on a stock CI runner; the default `go test ./...` suite is ~1 s (integration and benchmark suites are behind build tags).
 - Verify by tag: `go install github.com/canakcinar/lucid@v0.1.0` and run `lucid -version`.
 
-[Unreleased]: https://github.com/canakcinar/lucid/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/canakcinar/lucid/compare/v0.2.3...HEAD
+[v0.2.3]: https://github.com/canakcinar/lucid/releases/tag/v0.2.3
 [v0.2.2]: https://github.com/canakcinar/lucid/releases/tag/v0.2.2
 [v0.2.1]: https://github.com/canakcinar/lucid/releases/tag/v0.2.1
 [v0.2.0]: https://github.com/canakcinar/lucid/releases/tag/v0.2.0

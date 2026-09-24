@@ -243,6 +243,10 @@ type Finding struct {
 	Collapsed int      `json:"collapsed,omitempty"` // this row stands in for N same-response paths
 	Members   []string `json:"members,omitempty"`   // the collapsed URLs — nothing is lost
 	Secrets   []string `json:"secrets,omitempty"`   // fired secret-pattern names — leads, not confirmations
+	// SecretMatches carries the ACTUAL matched substrings (truncated to 200 chars) so the
+	// operator can triage without re-fetching. Populated alongside Secrets; kept as a
+	// separate field so a consumer still using the legacy names-only view isn't broken.
+	SecretMatches []SecretMatch `json:"secret_matches,omitempty"`
 	Note      string   `json:"note,omitempty"`      // e.g. "waf-pattern-block" for a sensitive-path 403 that's just a filter
 	New       bool     `json:"new,omitempty"`
 	// Change is set alongside New when -diff finds a URL in the baseline whose observable

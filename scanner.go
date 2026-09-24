@@ -614,8 +614,16 @@ func (s *Scanner) verify(c cand, p Profile, dirAttempts, dirErrs *atomic.Int64) 
 	// Secret-pattern scan on successful text/JSON bodies (leads, not confirmations). Skipped for
 	// assets — minified JS bundles trip generic-secret regexes ~100% of the time and drown real leads.
 	if r.Status >= 200 && r.Status < 400 && r.Body != "" && f.Kind != "asset" {
-		if secs := scanSecrets(r.Body, r.CType); len(secs) > 0 {
-			f.Secrets = secs
+		// Scan with values (round-11): SecretMatches carries the actual matched substring so
+		// the operator can triage without re-fetching. Secrets stays populated for schema
+		// compatibility — consumers still using .secrets:[names] don't break.
+		if ms := scanSecretsWithValues(r.Body, r.CType); len(ms) > 0 {
+			f.SecretMatches = ms
+			names := make([]string, 0, len(ms))
+			for _, m := range ms {
+				names = append(names, m.Name)
+			}
+			f.Secrets = names
 		}
 	}
 
@@ -888,4 +896,11 @@ func (s *Scanner) record(f Finding) {
 	// row still has strong "200-green / 4xx-red" scan-ability at a glance.
 	urlPart := hyperlink(f.URL, f.URL)
 	fmt.Printf("  \x1b[%dm[%d]\x1b[0m %s \x1b[90m(%s d%d)\x1b[0m%s\n", col, f.Status, urlPart, f.Source, f.Dist, extra)
+	// Secret matches print on their own indented lines below the finding — one per match,
+	// with the actual value. This is what an operator needs to decide "real leak vs. false
+	// pattern hit" without diffing the HAR: seeing `aws-api-gateway → https://xyz.execute-api...`
+	// vs. `generic-secret → password=<placeholder>` is the whole triage delta.
+	for _, m := range f.SecretMatches {
+		fmt.Printf("       \x1b[31;1m↳ %s\x1b[0m \x1b[90m→\x1b[0m %s\n", m.Name, m.Value)
+	}
 }

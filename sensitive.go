@@ -97,9 +97,38 @@ func init() {
 	}
 }
 
-// scanSecrets returns the names of patterns that fired against a response body. Empty = clean.
-// Only bodies plausibly containing text are scanned (avoid binary asset false hits).
+// SecretMatch carries the name of the fired pattern AND the actual matched value so an
+// operator can triage without re-fetching the body. Values are truncated to secretValueCap
+// so a rich body doesn't stuff the console; the full value is still in the response body
+// the operator can pull via -har or by hand.
+type SecretMatch struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+const secretValueCap = 200 // console-safe; anything longer is a hint at the shape, not a full leak
+
+// scanSecrets returns the names of patterns that fired — this stays the legacy API so all
+// existing callers keep working. scanSecretsWithValues (below) is the round-11 replacement
+// that also returns the actual matched substring; the scanner switched to it, and this
+// wrapper is now a shim so external callers don't break on the type change.
 func scanSecrets(body, ctype string) []string {
+	matches := scanSecretsWithValues(body, ctype)
+	if len(matches) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, m.Name)
+	}
+	return out
+}
+
+// scanSecretsWithValues returns each fired pattern's name AND the actual matched value
+// (truncated). Only bodies plausibly containing text are scanned (avoid binary-asset
+// false hits). When the same pattern fires multiple times the first match wins — the
+// operator gets the shape, not a flood.
+func scanSecretsWithValues(body, ctype string) []SecretMatch {
 	if len(body) == 0 || len(body) > 2<<20 {
 		return nil
 	}
@@ -109,11 +138,14 @@ func scanSecrets(body, ctype string) []string {
 		!strings.Contains(ctype, "toml") {
 		return nil
 	}
-	var hits []string
+	var out []SecretMatch
 	for i, re := range secretREs {
-		if re.MatchString(body) {
-			hits = append(hits, secretPatterns[i].name)
+		if m := re.FindString(body); m != "" {
+			if len(m) > secretValueCap {
+				m = m[:secretValueCap] + "…"
+			}
+			out = append(out, SecretMatch{Name: secretPatterns[i].name, Value: m})
 		}
 	}
-	return hits
+	return out
 }

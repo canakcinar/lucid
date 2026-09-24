@@ -172,6 +172,45 @@ func TestResetRuntime_ClearsPartialReason(t *testing.T) {
 	_ = atomic.LoadInt64(new(int64)) // keep atomic import used across all future edits
 }
 
+// TestScanSecretsWithValues_ReturnsActualMatch — round-11: scanner now surfaces the
+// actual matched substring on the console so an operator can triage without opening
+// the HAR. This test locks the contract: same body → SecretMatch[] where each entry's
+// Value is a non-empty substring of the body, and Name matches the legacy names-only API.
+func TestScanSecretsWithValues_ReturnsActualMatch(t *testing.T) {
+	body := `{"credentialsUrl": "https://utbm4e6o56.execute-api.eu-central-1.amazonaws.com/v2","client.id":"0oaxo6uywvW6qgvdt697"}`
+	matches := scanSecretsWithValues(body, "application/json")
+	if len(matches) < 2 {
+		t.Fatalf("expected ≥2 matches (aws-api-gateway + okta-client-id); got %d: %v", len(matches), matches)
+	}
+	for _, m := range matches {
+		if m.Value == "" {
+			t.Errorf("SecretMatch %q has empty Value — the console-triage delta would disappear", m.Name)
+		}
+		if !strings.Contains(body, m.Value) && !strings.HasSuffix(m.Value, "…") {
+			t.Errorf("SecretMatch %q Value %q is not a substring of the body", m.Name, m.Value)
+		}
+	}
+	// Legacy scanSecrets shim MUST still return the name list — old callers can't break.
+	names := scanSecrets(body, "application/json")
+	if len(names) != len(matches) {
+		t.Errorf("legacy scanSecrets shim returned %d names but scanSecretsWithValues returned %d matches — shim drifted", len(names), len(matches))
+	}
+}
+
+// TestScanSecretsWithValues_TruncatesLongValue — a bloated matched value (say a whole
+// paragraph of pseudo-JSON) must be capped so it doesn't stuff the console with 5 KB.
+func TestScanSecretsWithValues_TruncatesLongValue(t *testing.T) {
+	// Construct a payload where the regex greedy-matches a long generic-secret shape.
+	long := strings.Repeat("a", 500)
+	body := `password: "` + long + `"`
+	matches := scanSecretsWithValues(body, "text/plain")
+	for _, m := range matches {
+		if len(m.Value) > secretValueCap+3 { // +3 for the "…" suffix
+			t.Errorf("SecretMatch %q Value length %d exceeds secretValueCap+3 (%d)", m.Name, len(m.Value), secretValueCap+3)
+		}
+	}
+}
+
 // TestSecretPattern_OktaClientIdDotVariant — the sweep found `"client.id": "0oa..."` which
 // the strict `"clientId"` regex missed. Assert all four spellings match now.
 func TestSecretPattern_OktaClientIdDotVariant(t *testing.T) {
