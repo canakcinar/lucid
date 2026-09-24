@@ -4,6 +4,24 @@ All notable changes to lucid are recorded here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [v0.2.1] — 2026-09-24
+
+Round-10 closes the "known small gaps" checklist. Every listed item shipped with a test where the check is meaningful.
+
+### Added
+- **Bypass verifier now covers `verbs`, `endpaths`, and `path-case`** (previously headers-only). A nomore403 winning record for verbs replays with the winning HTTP method (POST/PATCH/DELETE/…) against the wall URL; endpaths replays with the suffix appended; path-case replays with the last URL segment case-mangled per nomore403's payload. Each replay flows through the same `p.isNotFound` envelope check that already discriminates a real page from a soft-404, so a "verified:*" label means the technique actually cleared the wall. Malformed / unsafe payloads still fall through to `unverified:*` — silent misreproduction would be worse than not verifying.
+- **`SECURITY.md`** — how to privately report a vulnerability in lucid itself (out of scope: engine bugs, target findings). Sets expectations: 72h ack, 30-day update, no bounty.
+- **`.github/dependabot.yml`** for GitHub Actions bumps (weekly). Go module is zero-dep so gomod isn't wired.
+- **`nomoreBudget` fast cap** — 15s ceiling in `-mode fast`, standard/deep keep the derived ~31s budget so a rich target's full bypass matrix still fires.
+- **3 new tests**: `TestExtractVerb_AllowList`, `TestApplyPathCase_SwapsLastSegment`, `TestNomoreBudget_FastMode`.
+
+### Changed
+- `fetch.go`: added `fetchWithMethod` (fetchWith with a caller-chosen HTTP method). The verbs verifier uses it; existing `fetchWith` is now a wrapper. No behaviour change for existing callers.
+
+## [v0.2.0] — 2026-09-24
+
+Rename. Tool went from **sift** to **lucid** across every user-visible surface: go.mod module path (`github.com/canakcinar/lucid`), binary name, User-Agent, HAR creator, redacted-header string, temp-file prefixes, comments, docs, CI. Every prior tag (v0.1.1 – v0.1.5) remains reachable in the same repo for archaeology. Breaking change on module path and binary name → SemVer major bump.
+
 ## [v0.1.5] — 2026-09-24
 
 Adds a `-mode` selector so the operator picks the ferox aggressiveness profile up front instead of getting the one default. Three modes, one formula per mode; `feroxBudget` and `runFerox` are locked together via tests so a future change in one without the other fails at `go test`, not on a live sweep.
@@ -108,7 +126,9 @@ First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / k
 - `-audit` runs in ~13 s on a stock CI runner; the default `go test ./...` suite is ~1 s (integration and benchmark suites are behind build tags).
 - Verify by tag: `go install github.com/canakcinar/lucid@v0.1.0` and run `lucid -version`.
 
-[Unreleased]: https://github.com/canakcinar/lucid/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/canakcinar/lucid/compare/v0.2.1...HEAD
+[v0.2.1]: https://github.com/canakcinar/lucid/releases/tag/v0.2.1
+[v0.2.0]: https://github.com/canakcinar/lucid/releases/tag/v0.2.0
 [v0.1.5]: https://github.com/canakcinar/lucid/releases/tag/v0.1.5
 [v0.1.4]: https://github.com/canakcinar/lucid/releases/tag/v0.1.4
 [v0.1.3]: https://github.com/canakcinar/lucid/releases/tag/v0.1.3

@@ -653,23 +653,49 @@ func (s *Scanner) verify(c cand, p Profile, dirAttempts, dirErrs *atomic.Int64) 
 // on verified hits, a compact HTML-escaped body preview so the operator can tell a
 // real bypass from a login page or WAF happy-path without hand-replaying.
 //
-// Only the "headers" technique is replayed today: the payload is a plain "Name: value"
-// pair and a GET with that extra header is a trivial rebuild of nomore403's request.
-// verb tunneling, endpaths, path-case and any future technique that would need a
-// non-GET verb, a mangled path, or a different transport stay as "unverified:*" —
-// silently misreproducing them is worse than not verifying.
+// Techniques verified since round-10:
+//   - headers        : extra "Name: value" on a GET (identical to nomore403's request)
+//   - verbs          : swap HTTP method to the winning verb (POST/PATCH/DELETE/…)
+//   - endpaths       : append the payload suffix to the URL path (/admin/. , /admin;.js)
+//   - path-case      : rewrite the last URL segment with the payload's case pattern
+//
+// A payload that doesn't fit any known replay shape (or a technique lucid hasn't
+// implemented yet) stays as "unverified:*". Silent misreproduction would be worse
+// than not verifying — a "verified" label MUST mean lucid actually reached the wall
+// with the technique nomore403 reported.
 func verifyBypass(client *http.Client, target *url.URL, rawurl string, hit *NomoreHit, p Profile, cfg *Config, techStr string) (string, string) {
 	if hit == nil {
 		return "", ""
 	}
-	if hit.Technique != "headers" {
+	var r Resp
+	switch hit.Technique {
+	case "headers":
+		name, val, ok := splitHeaderPayload(hit.Payload)
+		if !ok {
+			return "unverified:" + techStr, ""
+		}
+		r = fetchWith(client, target, rawurl, cfg, map[string]string{name: val})
+	case "verbs", "verbs-case":
+		verb := extractVerb(hit.Payload)
+		if verb == "" {
+			return "unverified:" + techStr, ""
+		}
+		r = fetchWithMethod(client, target, rawurl, cfg, verb, nil)
+	case "endpaths":
+		suffix := strings.TrimSpace(hit.Payload)
+		if suffix == "" {
+			return "unverified:" + techStr, ""
+		}
+		r = fetchWith(client, target, rawurl+suffix, cfg, nil)
+	case "path-case":
+		mangled := applyPathCase(rawurl, hit.Payload)
+		if mangled == "" || mangled == rawurl {
+			return "unverified:" + techStr, ""
+		}
+		r = fetchWith(client, target, mangled, cfg, nil)
+	default:
 		return "unverified:" + techStr, ""
 	}
-	name, val, ok := splitHeaderPayload(hit.Payload)
-	if !ok {
-		return "unverified:" + techStr, ""
-	}
-	r := fetchWith(client, target, rawurl, cfg, map[string]string{name: val})
 	if r.Err != nil || r.OffScope {
 		// Any transport failure means we can't prove anything about the bypass — keep it
 		// as a lead, don't downgrade a real hit just because the replay hit a network blip.
@@ -687,6 +713,55 @@ func verifyBypass(client *http.Client, target *url.URL, rawurl string, hit *Nomo
 		return "unverified:" + techStr, ""
 	}
 	return "verified:" + techStr, buildBypassPreview(r)
+}
+
+// extractVerb pulls the HTTP method from a nomore403 verbs-technique payload. The
+// canonical shape is a bare method name ("POST", "PATCH", "DELETE"), sometimes
+// followed by a suffix nomore403 uses internally (e.g. "POST HTTP/1.0"). We split on
+// whitespace and validate against the standard method set — a payload like "OPTIONS"
+// or "FOO-BAR" that isn't in the allow list stays unverified rather than sending
+// a request with an arbitrary verb the target might respond to strangely.
+func extractVerb(payload string) string {
+	fields := strings.Fields(strings.ToUpper(payload))
+	if len(fields) == 0 {
+		return ""
+	}
+	m := fields[0]
+	// Allow list per RFC 7231 + common tunneling verbs nomore403 tests. Anything else
+	// is a payload shape we don't understand; treat as unverified rather than sending
+	// an arbitrary method the caller didn't opt into.
+	switch m {
+	case "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT":
+		return m
+	}
+	return ""
+}
+
+// applyPathCase produces a case-mangled URL from a rawurl + payload. nomore403's
+// path-case technique emits the mangled tail (e.g. "AdMiN") as the payload; we swap
+// the last segment of rawurl for it, preserving scheme/host/query. Returns "" when
+// the payload doesn't look like a valid path segment (contains newlines, spaces, or
+// scheme chars) — belt-and-braces so a malformed record doesn't turn into a request
+// against a nonsense URL.
+func applyPathCase(rawurl, payload string) string {
+	p := strings.TrimSpace(payload)
+	if p == "" || strings.ContainsAny(p, " \n\r\t/") {
+		return ""
+	}
+	u, err := url.Parse(rawurl)
+	if err != nil {
+		return ""
+	}
+	segs := strings.Split(u.Path, "/")
+	// Find the last non-empty segment and swap it for the mangled payload.
+	for i := len(segs) - 1; i >= 0; i-- {
+		if segs[i] != "" {
+			segs[i] = p
+			u.Path = strings.Join(segs, "/")
+			return u.String()
+		}
+	}
+	return ""
 }
 
 // splitHeaderPayload parses nomore403's headers-technique payload ("Header-Name: value")

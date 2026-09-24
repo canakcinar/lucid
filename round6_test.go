@@ -212,6 +212,75 @@ func TestSecretPattern_AWSAPIGateway(t *testing.T) {
 	}
 }
 
+// TestNomoreBudget_FastMode — fast mode caps nomore403 at 15s (baseline is ~31s with the
+// current technique×payload matrix). Standard/deep get the full derived budget so a rich
+// target still gets the whole bypass surface.
+func TestNomoreBudget_FastMode(t *testing.T) {
+	fast := nomoreBudget(&Config{Mode: "fast"})
+	standard := nomoreBudget(&Config{Mode: "standard"})
+	if fast > 15 {
+		t.Errorf("fast mode nomoreBudget = %ds; expected ≤ 15", fast)
+	}
+	if standard <= 15 {
+		t.Errorf("standard mode nomoreBudget = %ds; expected > 15 (fast cap must not apply)", standard)
+	}
+}
+
+// TestExtractVerb_AllowList — verb bypass verifier must accept every RFC 7231 method
+// nomore403 tests, and reject anything else. A stray payload like "FOO" or a blank line
+// MUST NOT turn into an HTTP request against the target with an arbitrary method.
+func TestExtractVerb_AllowList(t *testing.T) {
+	for _, m := range []string{"GET", "POST", "PATCH", "DELETE", "PUT", "HEAD", "OPTIONS", "TRACE", "CONNECT"} {
+		if got := extractVerb(m); got != m {
+			t.Errorf("extractVerb(%q) = %q; expected %q", m, got, m)
+		}
+	}
+	// Case-insensitive input still normalizes to canonical upper.
+	if got := extractVerb("post"); got != "POST" {
+		t.Errorf("extractVerb lowercase: got %q, expected POST", got)
+	}
+	// Method with trailing junk (nomore403 sometimes emits "POST HTTP/1.0") — take the first token.
+	if got := extractVerb("POST HTTP/1.0"); got != "POST" {
+		t.Errorf("extractVerb with suffix: got %q, expected POST", got)
+	}
+	// Unknown / malformed payloads must NOT become requests. A payload with an injected
+	// newline still extracts the first token — that's safe because net/http won't fold a
+	// method-line CRLF into a header (the method field is separately validated). The
+	// header-injection concern goes through the URL and header inputs, not the method.
+	for _, bad := range []string{"", "  ", "FOO", "GETX", "/admin"} {
+		if got := extractVerb(bad); got != "" {
+			t.Errorf("extractVerb(%q) must return \"\" (blocked); got %q", bad, got)
+		}
+	}
+}
+
+// TestApplyPathCase_SwapsLastSegment — path-case verifier rewrites only the last
+// non-empty segment so scheme/host/query stay intact. A payload with slashes or
+// whitespace is rejected as unsafe.
+func TestApplyPathCase_SwapsLastSegment(t *testing.T) {
+	cases := []struct {
+		url, payload, want string
+	}{
+		{"https://example.com/admin", "AdMiN", "https://example.com/AdMiN"},
+		// Trailing slash means last non-empty segment is still `admin`; the mangler swaps IN PLACE.
+		// nomore403's path-case technique changes case of the existing path, doesn't append new segments.
+		{"https://example.com/admin/", "AdMiN", "https://example.com/AdMiN/"},
+		{"https://example.com/api/users?x=1", "USERS", "https://example.com/api/USERS?x=1"},
+	}
+	for _, c := range cases {
+		got := applyPathCase(c.url, c.payload)
+		if got != c.want {
+			t.Errorf("applyPathCase(%q, %q) = %q; expected %q", c.url, c.payload, got, c.want)
+		}
+	}
+	// Unsafe payloads must return "" (no request built).
+	for _, bad := range []string{"", "  ", "AD/MIN", "AD MIN", "AD\nMIN"} {
+		if got := applyPathCase("https://example.com/admin", bad); got != "" {
+			t.Errorf("applyPathCase must reject %q; got %q", bad, got)
+		}
+	}
+}
+
 // TestIsConfigLike_RequiresBothHalves — a `config.json` URL alone or an outbound URL in a
 // random API response alone is NOT the "leaky config" signal. Only the pair fires kind:config.
 func TestIsConfigLike_RequiresBothHalves(t *testing.T) {

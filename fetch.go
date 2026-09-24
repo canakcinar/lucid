@@ -105,12 +105,24 @@ func fetch(client *http.Client, target *url.URL, rawurl string, cfg *Config) Res
 // LAST so it overrides cfg.Headers when the two collide — nomore403's winning payload
 // wins over an operator-supplied -H default, which is the whole point of the replay.
 func fetchWith(client *http.Client, target *url.URL, rawurl string, cfg *Config, extra map[string]string) Resp {
+	return fetchWithMethod(client, target, rawurl, cfg, "GET", extra)
+}
+
+// fetchWithMethod is fetchWith with a caller-chosen HTTP method. Round-10 added it so
+// the verbs bypass verifier can replay nomore403's winning verb (POST/PATCH/DELETE/…)
+// against the wall URL and check whether the response leaves the not-found envelope.
+// Falls through to fetchWith's exact status/SimHash/title/OffScope wiring — the method
+// is the only difference from a GET replay.
+func fetchWithMethod(client *http.Client, target *url.URL, rawurl string, cfg *Config, method string, extra map[string]string) Resp {
 	r := Resp{URL: rawurl}
 	if cfg.MaxReq > 0 && atomic.AddInt64(&cfg.reqCount, 1) > int64(cfg.MaxReq) {
 		r.Err = errBudget
 		return r
 	}
-	req, err := http.NewRequest("GET", rawurl, nil)
+	if method == "" {
+		method = "GET"
+	}
+	req, err := http.NewRequest(method, rawurl, nil)
 	if err != nil {
 		r.Err = err
 		return r

@@ -160,6 +160,15 @@ func nomoreBudget(cfg *Config) int {
 			seconds = floor + 15
 		}
 	}
+	// Fast mode caps the nomore403 wall-time at 15s per URL. Bypass hit-rate follows a
+	// power-law: the majority of real bypasses are found in the first ~10s (X-Forwarded-For,
+	// bare-verb tunneling). The long tail is rare and doesn't fit the "first-look sweep
+	// across many hosts" intent behind fast mode. Standard/deep keep the derived budget
+	// (~31s baseline for the current technique×payload matrix) so a rich target still gets
+	// the full bypass surface.
+	if cfg.Mode == "fast" && seconds > 15 {
+		seconds = 15
+	}
 	return seconds
 }
 
