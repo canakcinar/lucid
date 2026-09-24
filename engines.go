@@ -17,6 +17,85 @@ import (
 
 // Truncation is now per-Config (see Config.Truncated) so state can't bleed across scans.
 
+// --- Why hard timeouts instead of "wait until the engine finishes" ---------------------------
+//
+// Every external engine (feroxbuster, ffuf, katana, gau, nomore403) is bounded by a deadline —
+// engineCmd derives context.WithTimeout from cfg.EngineTimeout, and cancel is wired to
+// killGroup so the whole process group dies with the parent. This is deliberate. The four
+// reasons a "just wait" design would be worse in production:
+//
+//  1. Adversarial hosts. A target that answers every request with a 30s slow-loris — legally
+//     within HTTP — turns a 4750-word brute into a 40-hour scan. Wait-forever means the scan
+//     literally never returns; the operator has no signal until they Ctrl-C, and any batch
+//     wrapper (sift-across-N-subdomains) blocks the slot forever.
+//  2. Engine bugs. feroxbuster has hung on specific 429 patterns; katana has deadlocked on
+//     malformed JS handlers; nomore403 has blocked on its own payload channel. Without a
+//     deadline, cmd.Wait() never returns, killGroup never runs, deferred temp-file removal
+//     never runs, and $TMPDIR fills with sift-*.jsonl scratch until the disk is full.
+//  3. Batch throughput. With 4 workers × 24 targets, one hostile target holding one slot for
+//     6 hours costs 25% of throughput. `coverage: PARTIAL + next target` is dramatically
+//     better user experience than "one scan hangs and drags the whole batch".
+//  4. Partial > silent. Timeout + Truncated=true surfaces "ferox got cut off at 91/4750" via
+//     coverage:partial + PartialReason in meta.json. The operator sees a specific engine
+//     truncated and can raise -engine-timeout OR accept the partial view. Wait-forever hides
+//     the "still running" state from the operator; timeout-then-report makes it observable.
+//
+// The right refinement (and what nomoreBudget / feroxBudget do) is not "remove the timeout"
+// but "derive the timeout from what the engine has to do": wordlist size × 1/rate. A fixed
+// -engine-timeout was the pre-round-6 bug — 240s was fine for quickhits.txt (2.5k) but blew
+// past on common.txt (4750) at -rate 30. Auto-derived timeout matches the workload, and
+// -engine-timeout on the CLI becomes the operator's override for exotic cases.
+//
+// --------------------------------------------------------------------------------------------
+
+// feroxBudget derives a work-appropriate ferox/ffuf timeout from the wordlist size and rate.
+// Uses `wc -l` on the wordlist path plus a 1.5× hedge and a 60s floor; when -rate is 0 (no
+// pacing) it assumes 40 req/s as a stock brute rate. This lets a user pass -w common.txt
+// without also learning to raise -engine-timeout — the deadline auto-scales to the workload
+// instead of silently truncating like the round-5 sweep showed.
+func feroxBudget(cfg *Config, wordlist string) int {
+	lines := wordlistLineCount(wordlist)
+	if lines <= 0 {
+		return cfg.EngineTimeout // wordlist unreadable/empty — fall back to user setting
+	}
+	rate := cfg.Rate
+	if rate <= 0 {
+		rate = 40 // ferox's default parallelism-driven rate is ~40 req/s on a warm host
+	}
+	// Depth multiplies the effective request budget (each hit can recurse -d levels). Cap
+	// the multiplier at 3× so a -depth 5 doesn't derive a 3-hour deadline for a small list.
+	depthMul := cfg.MaxDepth + 1
+	if depthMul > 3 {
+		depthMul = 3
+	}
+	seconds := (lines * depthMul) / rate
+	seconds = seconds * 3 / 2 // 1.5× hedge for network jitter and retries
+	if seconds < 60 {
+		seconds = 60
+	}
+	return seconds
+}
+
+// wordlistLineCount opens the wordlist once and returns its non-blank line count. Used by
+// feroxBudget to size the timeout without shelling out to `wc -l`. Errors return 0 — the
+// caller then falls back to the user's -engine-timeout, so a broken read never blocks a scan.
+func wordlistLineCount(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	n := 0
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		if line := strings.TrimSpace(sc.Text()); line != "" && !strings.HasPrefix(line, "#") {
+			n++
+		}
+	}
+	return n
+}
+
 // nomore403 configuration lives in one place so nomoreBudget's timeout formula stays in sync
 // with the actual command line. Change these and the deadline auto-adjusts; drift silently was
 // the pre-fix bug ("techniques := 4" was baked into the formula but the -k list said 4 techs).
@@ -132,7 +211,22 @@ func haveBin(b string) bool { _, err := exec.LookPath(b); return err == nil }
 // every engine's context and tears the child down via killGroup (below) — otherwise a
 // non-interactive run leaves feroxbuster/katana/gau/nomore403 orphaned.
 func engineCmd(cfg *Config, name string, args ...string) (*exec.Cmd, context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(rootCtx, time.Duration(cfg.EngineTimeout)*time.Second)
+	return engineCmdBudget(cfg, name, cfg.EngineTimeout, args...)
+}
+
+// engineCmdBudget is engineCmd with an explicit deadline override — used by runFerox/runFfuf
+// with feroxBudget() and by runNomore403 with nomoreBudget(). A cfg.EngineTimeout override
+// on the CLI always takes precedence: the operator's explicit -engine-timeout beats the
+// derived formula so an exotic case (a very slow VPN link, a paranoid rate limit) can be
+// dialed in without a code change.
+func engineCmdBudget(cfg *Config, name string, seconds int, args ...string) (*exec.Cmd, context.Context, context.CancelFunc) {
+	if cfg.engineTimeoutSetByUser && cfg.EngineTimeout > 0 {
+		seconds = cfg.EngineTimeout // operator override wins over the derived budget
+	}
+	if seconds <= 0 {
+		seconds = cfg.EngineTimeout
+	}
+	ctx, cancel := context.WithTimeout(rootCtx, time.Duration(seconds)*time.Second)
 	cmd := exec.CommandContext(ctx, name, args...)
 	setPgid(cmd)
 	// Override the default Kill-the-direct-child cancel with a group signal so
@@ -143,12 +237,35 @@ func engineCmd(cfg *Config, name string, args ...string) (*exec.Cmd, context.Con
 }
 
 // truncWarn shouts when an engine was killed by the timeout mid-run — its output is PARTIAL, so a
-// real path (alphabetically late in the wordlist, etc.) may have been silently missed.
+// real path (alphabetically late in the wordlist, etc.) may have been silently missed. Also
+// records the specific engine in PartialReason so meta.partial_reason in the -o JSON can tell
+// a CI script whether the fix is "raise -engine-timeout" (ferox truncated) or "network flaky"
+// (fetch_errors) — a bare "partial" left the operator guessing.
 func truncWarn(cfg *Config, name string, ctx context.Context) {
 	if ctx.Err() == context.DeadlineExceeded {
 		cfg.Truncated.Store(true)
+		setPartialReason(cfg, name+"_timeout")
 		fmt.Fprintf(os.Stderr, "\x1b[33m[!] %s hit -engine-timeout — results are PARTIAL; raise -engine-timeout or lower coverage/rate\x1b[0m\n", name)
 	}
+}
+
+// setPartialReason accumulates each truncating engine into a comma-separated list. A scan
+// where BOTH ferox AND nomore403 timed out gives "feroxbuster_timeout,nomore403_timeout" —
+// hiding the second engine behind the first would tell the operator "raise -engine-timeout"
+// when in fact TWO things need attention. Dedupes so the same reason doesn't stack.
+func setPartialReason(cfg *Config, reason string) {
+	cfg.partialMu.Lock()
+	defer cfg.partialMu.Unlock()
+	if cfg.PartialReason == "" {
+		cfg.PartialReason = reason
+		return
+	}
+	for _, existing := range strings.Split(cfg.PartialReason, ",") {
+		if existing == reason {
+			return
+		}
+	}
+	cfg.PartialReason += "," + reason
 }
 
 // engineRunErr surfaces a real engine crash (missing shared library, OOM kill, permission
@@ -165,6 +282,7 @@ func engineRunErr(cfg *Config, name string, ctx context.Context, err error) {
 		return // truncWarn already reported this — don't double-log.
 	}
 	cfg.Truncated.Store(true)
+	setPartialReason(cfg, name+"_error")
 	fmt.Fprintf(os.Stderr, "\x1b[33m[!] engine %s failed: %v — results are PARTIAL\x1b[0m\n", name, err)
 }
 
@@ -212,7 +330,9 @@ func runFerox(targetURL, wordlist string, cfg *Config) map[string]int {
 	if cfg.Proxy != "" {
 		a = append(a, "-p", cfg.Proxy)
 	}
-	cmd, ctx, cancel := engineCmd(cfg, "feroxbuster", a...)
+	// feroxBudget scales the deadline to the wordlist (rate + depth-aware); the round-5
+	// sweep showed that a flat -engine-timeout 240 truncated common.txt on every target.
+	cmd, ctx, cancel := engineCmdBudget(cfg, "feroxbuster", feroxBudget(cfg, wordlist), a...)
 	defer cancel()
 	err = cmd.Run()
 	truncWarn(cfg, "feroxbuster", ctx)
@@ -258,7 +378,9 @@ func runFfuf(targetURL, wordlist string, cfg *Config) map[string]int {
 	if cfg.Proxy != "" {
 		a = append(a, "-x", cfg.Proxy)
 	}
-	cmd, ctx, cancel := engineCmd(cfg, "ffuf", a...)
+	// ffuf shares the ferox budget formula — same wordlist × rate × depth arithmetic; the
+	// fallback engine gets the same auto-scaled deadline the primary would have received.
+	cmd, ctx, cancel := engineCmdBudget(cfg, "ffuf", feroxBudget(cfg, wordlist), a...)
 	defer cancel()
 	err = cmd.Run()
 	truncWarn(cfg, "ffuf", ctx)

@@ -4,6 +4,21 @@ All notable changes to sift are recorded here. Format follows [Keep a Changelog]
 
 ## [Unreleased]
 
+## [v0.1.2] — 2026-09-24
+
+Field-driven release: closes the 7 gaps the round-5 24-target sweep (CyberWhiz + arcelikiot, both authorized) exposed. Every fix has a test anchoring it; `sift -audit` still ships 14/14 green.
+
+### Added
+- **Auto-derived engine timeout for ferox / ffuf**. `feroxBudget(cfg, wordlist)` reads the wordlist line count and derives `lines × (depth-cap 3) × 3/2 / rate`, with a 60s floor and a fallback to `-engine-timeout` when the wordlist is unreadable. common.txt (4750 words) at `-rate 30` now derives ~712s instead of truncating at the flat 300s default. `-engine-timeout` on the CLI still wins (`engineTimeoutSetByUser` guard via `flag.Visit`) so an operator can override for exotic cases.
+- **`meta.partial_reason`** in the `-o` JSON. When `coverage: partial`, the field names WHICH engine truncated (e.g. `feroxbuster_timeout,nomore403_timeout` or `fetch_errors`, `dir_blind:/api/`). A CI script gating on partial no longer has to grep stderr to know whether to raise `-engine-timeout` or retry the whole run. `setPartialReason()` dedupes so the same reason doesn't stack.
+- **`kind: config`** — a 200 JSON/JS response whose URL matches a build-config filename (`config.json`, `manifest.json`, `runtime-config.json`, `env.js`, etc.) AND whose body contains an outbound service URL (AWS API Gateway, S3, Okta, Firebase, Azure Blob, GCP Storage) gets tagged. The round-5 sweep found live examples (`otatool.arcelikiot.com/config.json` with Okta client IDs; `mailservices.arcelikiot.com/jsAlt/config.json` with AWS API Gateway URLs) that would have been dismissed as "static assets" without this signal.
+- **Secret pattern surface** extended: `okta-client-id` now matches all four spellings (`clientId`, `client.id`, `client_id`, `oktaClientId`) — the strict variant missed the dot form found on `otatool`. New patterns for `aws-api-gateway`, `aws-s3-bucket`, `azure-blob`, `gcp-storage`, `firebase-db` surface architecture-leak URLs as leads (they're not "secrets" in the strict sense, but a bug-bounty operator wants to know they're there).
+- **Timeout-philosophy comment block** at the top of `engines.go`: documents WHY every engine is bounded (adversarial hosts, engine bugs, batch throughput, partial > silent) rather than "wait until done". Answers the design question a reviewer will ask.
+- **7 tests** in `round6_test.go` — one per fix. Coverage stays green under `-race`.
+
+### Changed
+- `truncWarn` / `engineRunErr` now record the failing engine's name in `Config.PartialReason` when they flip `Truncated`. `ResetRuntime()` clears both, so a library caller reusing the same Config across scans doesn't carry stale reasons into the next run.
+
 ## [v0.1.1] — 2026-09-24
 
 Housekeeping release. **Rewrites v0.1.0's history to purge accidentally-committed engagement scan JSONs** and adds the CI + test coverage that v0.1.0's audit round-4 missed. The v0.1.0 tag is deleted and replaced by v0.1.1 — anyone who already fetched v0.1.0 should re-clone.
@@ -45,6 +60,7 @@ First tagged release. Content-discovery orchestrator over ffuf / feroxbuster / k
 - `-audit` runs in ~13 s on a stock CI runner; the default `go test ./...` suite is ~1 s (integration and benchmark suites are behind build tags).
 - Verify by tag: `go install github.com/canakcinar/sift@v0.1.0` and run `sift -version`.
 
-[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/canakcinar/sift/compare/v0.1.2...HEAD
+[v0.1.2]: https://github.com/canakcinar/sift/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/canakcinar/sift/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/canakcinar/sift/releases/tag/v0.1.0

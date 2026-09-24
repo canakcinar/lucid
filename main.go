@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -157,6 +158,18 @@ type Config struct {
 	// so a second scan in the same process starts clean — critical when sift is used as a
 	// library or when -audit runs before a real scan.
 	Truncated atomic.Bool
+	// PartialReason records WHICH engine truncated when Truncated flips true. Written by
+	// truncWarn / engineRunErr / verify(); consumed by main.go to populate meta.partial_reason
+	// in the -o JSON. A CI script gating on coverage:partial needs to know if it was
+	// ferox_timeout (raise -engine-timeout) or fetch_errors (network flaky) to decide whether
+	// to retry — a bare "partial" gave no direction. Concurrent writers protected by partialMu.
+	PartialReason  string
+	partialMu      sync.Mutex
+	// engineTimeoutSetByUser is true when the operator passed -engine-timeout on the CLI. When
+	// unset, engineCmdBudget uses the per-engine derived budget (feroxBudget / nomoreBudget);
+	// when set, the operator's number wins so an exotic case (slow VPN, paranoid rate) can
+	// override without a code change.
+	engineTimeoutSetByUser bool
 
 	// Resume/checkpoint plumbing. CheckpointPath, when set, makes the scanner:
 	//   - open the file in append mode and write one Finding per line inside record()
@@ -177,6 +190,9 @@ type Config struct {
 func (c *Config) ResetRuntime() {
 	atomic.StoreInt64(&c.reqCount, 0)
 	c.Truncated.Store(false)
+	c.partialMu.Lock()
+	c.PartialReason = ""
+	c.partialMu.Unlock()
 	// Throttle carries its own accumulated backoff; a fresh scan should start at the base.
 	// Only rebuild it if Delay is set — Delay==0 means "no throttling", and a nil Throttle
 	// is the honest representation of that (fetch.go tolerates cfg.Throttle == nil).
@@ -419,6 +435,16 @@ func main() {
 	var hdr headerFlags
 	flag.Var(&hdr, "H", "extra request header 'K: V' (repeatable)")
 	flag.Parse()
+	// Learn whether the operator explicitly set -engine-timeout — flag.Visit lists ONLY the
+	// flags that were passed on the CLI, unlike flag.VisitAll. When the operator overrode
+	// the default, engineCmdBudget respects that number over feroxBudget/nomoreBudget. When
+	// left at the default, the auto-derived per-engine budget wins so common.txt no longer
+	// truncates on every target (the round-5 sweep failure mode).
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "engine-timeout" {
+			cfg.engineTimeoutSetByUser = true
+		}
+	})
 	// -version prints and exits BEFORE -audit and the URL requirement so a packaging script
 	// (`sift -version` in a Dockerfile / brew formula) doesn't need to hand the binary a URL
 	// just to learn what version it shipped.
@@ -673,11 +699,12 @@ func main() {
 		// a top-level "findings" key — one grep away.
 		out := struct {
 			Meta struct {
-				Target   string `json:"target"`
-				Coverage string `json:"coverage"` // "complete" | "partial"
-				Findings int    `json:"findings"`
-				Assets   int    `json:"assets"`
-				Review   int    `json:"review"`
+				Target        string `json:"target"`
+				Coverage      string `json:"coverage"` // "complete" | "partial"
+				PartialReason string `json:"partial_reason,omitempty"`
+				Findings      int    `json:"findings"`
+				Assets        int    `json:"assets"`
+				Review        int    `json:"review"`
 			} `json:"meta"`
 			Findings []Finding `json:"findings"`
 		}{Findings: findings}
@@ -685,6 +712,13 @@ func main() {
 		out.Meta.Coverage = "complete"
 		if cfg.Truncated.Load() {
 			out.Meta.Coverage = "partial"
+			// partial_reason names which engine(s) truncated so a CI script gating on
+			// coverage:partial can distinguish "raise -engine-timeout" (feroxbuster_timeout)
+			// from "retry the whole run" (fetch_errors). Empty means truncated=true was set
+			// without a reason string — should not happen, but the field stays omitempty.
+			cfg.partialMu.Lock()
+			out.Meta.PartialReason = cfg.PartialReason
+			cfg.partialMu.Unlock()
 		}
 		out.Meta.Findings = hits
 		out.Meta.Assets = assetCount

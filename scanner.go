@@ -435,6 +435,7 @@ func (s *Scanner) Run() []Finding {
 			"\x1b[31m[!] coverage: PARTIAL — %d/%d candidates failed to fetch (network/WAF/TLS?)\x1b[0m\n",
 			errs, tot)
 		s.cfg.Truncated.Store(true)
+		setPartialReason(s.cfg, "fetch_errors")
 	}
 	return s.findings
 }
@@ -507,6 +508,7 @@ func (s *Scanner) cleanDir(dir string, cands []cand, p Profile) {
 		fmt.Fprintf(os.Stderr,
 			"\x1b[31m[!] %s  all %d candidates failed to fetch — dir is blind\x1b[0m\n", dir, a)
 		s.cfg.Truncated.Store(true)
+		setPartialReason(s.cfg, "dir_blind:"+dir)
 	}
 }
 
@@ -576,6 +578,14 @@ func (s *Scanner) verify(c cand, p Profile, dirAttempts, dirErrs *atomic.Int64) 
 		f.Kind = "ws" // WebSocket handshake accepted — the realtime surface lives here
 	case sseHit:
 		f.Kind = "sse" // Server-Sent Events stream
+	case r.Status == 200 && isConfigLike(c.url, r.CType, r.Body):
+		// kind:config marks a 200 JSON/JS-config response whose body includes an outbound
+		// service URL (AWS/Okta/Firebase/etc). The round-6 sweep found `config.json` and
+		// `manifest.json` under `arcelikiot` carrying dev/prod AWS API Gateway endpoints —
+		// standard triage would drop them as "static JSON assets" and miss the architecture
+		// leak. Tagging them as kind:config surfaces the finding for review without pretending
+		// it's proof of a vulnerability — it's a lead, same contract as `secrets: []`.
+		f.Kind = "config"
 	case isAsset(c.url):
 		f.Kind = "asset"
 	case s.baseSim != 0 && r.Status == 200 && c.url != s.target.String() && Hamming(r.Sim, s.baseSim) <= simhashThresholdMargin:
