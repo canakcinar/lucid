@@ -1,0 +1,26 @@
+# Build artifacts
+lucid
+lucid.exe
+
+# Pipeline scratch / workflow artifacts
+/.pipeline/
+
+# Coverage / temp
+*.har
+*.out
+
+# Scan artefacts — lucid's own default JSON outputs. Committing an engagement
+# scan into a public repo is a data-leak class of accident (endpoint URLs,
+# HAR-adjacent detail, and — for a real target — possibly a confirmed
+# exposure). Ignoring the scan-*/s_*/geoip*.json prefixes at the source stops
+# it from happening even when a maintainer runs `git add -A` in the repo root.
+scan_*.json
+s_*.json
+geoip*.json
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store

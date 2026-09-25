@@ -1,0 +1,22 @@
+# Dependabot config — GitHub Actions pins only.
+#
+# lucid's Go module is zero-dependency (nothing under require in go.mod), so a
+# gomod ecosystem entry would never fire. GitHub Actions IS pinned though —
+# actions/checkout@v4 and actions/setup-go@v5 in .github/workflows/ci.yml — and
+# those bump manually today. This entry keeps them current without me having to
+# remember.
+#
+# Cadence: weekly. GitHub Actions rev-bumps aren't security-critical enough for
+# daily churn; weekly is the sweet spot between "you'll notice a real advisory
+# within a week" and "no PR fatigue".
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
